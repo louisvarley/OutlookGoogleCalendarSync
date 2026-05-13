@@ -14,11 +14,13 @@ namespace OutlookGoogleCalendarSync.Outlook {
             public String Text { get; }
             public OutlookCOM.OlCategoryColor OutlookCategory { get; }
             public Color Colour { get; }
+            public String GraphCategoryColor { get; }
 
-            public ColourInfo(OutlookCOM.OlCategoryColor category, Color colour, String name = "") {
+            public ColourInfo(OutlookCOM.OlCategoryColor category, Color colour, String name = "", String graphCategoryColor = null) {
                 this.Text = string.IsNullOrEmpty(name) ? Categories.FriendlyCategoryName(category) : name;
                 this.Colour = colour;
                 this.OutlookCategory = category;
+                this.GraphCategoryColor = graphCategoryColor;
             }
         }
 
@@ -58,6 +60,37 @@ namespace OutlookGoogleCalendarSync.Outlook {
             };
             }
 
+            // Source: https://learn.microsoft.com/en-us/graph/api/resources/outlookcategory?view=graph-rest-1.0
+            // Presets are client-mapped constants. These names match Outlook desktop mappings.
+            public static Dictionary<String, OutlookCOM.OlCategoryColor> GraphPresets { get; } = new Dictionary<string, OutlookCOM.OlCategoryColor>(StringComparer.OrdinalIgnoreCase) {
+                { "none", OutlookCOM.OlCategoryColor.olCategoryColorNone },
+                { "preset0", OutlookCOM.OlCategoryColor.olCategoryColorRed },
+                { "preset1", OutlookCOM.OlCategoryColor.olCategoryColorOrange },
+                { "preset2", OutlookCOM.OlCategoryColor.olCategoryColorDarkPeach },
+                { "preset3", OutlookCOM.OlCategoryColor.olCategoryColorYellow },
+                { "preset4", OutlookCOM.OlCategoryColor.olCategoryColorGreen },
+                { "preset5", OutlookCOM.OlCategoryColor.olCategoryColorTeal },
+                { "preset6", OutlookCOM.OlCategoryColor.olCategoryColorOlive },
+                { "preset7", OutlookCOM.OlCategoryColor.olCategoryColorBlue },
+                { "preset8", OutlookCOM.OlCategoryColor.olCategoryColorPurple },
+                { "preset9", OutlookCOM.OlCategoryColor.olCategoryColorMaroon },
+                { "preset10", OutlookCOM.OlCategoryColor.olCategoryColorSteel },
+                { "preset11", OutlookCOM.OlCategoryColor.olCategoryColorDarkSteel },
+                { "preset12", OutlookCOM.OlCategoryColor.olCategoryColorGray },
+                { "preset13", OutlookCOM.OlCategoryColor.olCategoryColorDarkGray },
+                { "preset14", OutlookCOM.OlCategoryColor.olCategoryColorBlack },
+                { "preset15", OutlookCOM.OlCategoryColor.olCategoryColorDarkRed },
+                { "preset16", OutlookCOM.OlCategoryColor.olCategoryColorDarkOrange },
+                { "preset17", OutlookCOM.OlCategoryColor.olCategoryColorDarkPeach },
+                { "preset18", OutlookCOM.OlCategoryColor.olCategoryColorDarkYellow },
+                { "preset19", OutlookCOM.OlCategoryColor.olCategoryColorDarkGreen },
+                { "preset20", OutlookCOM.OlCategoryColor.olCategoryColorDarkTeal },
+                { "preset21", OutlookCOM.OlCategoryColor.olCategoryColorDarkOlive },
+                { "preset22", OutlookCOM.OlCategoryColor.olCategoryColorDarkBlue },
+                { "preset23", OutlookCOM.OlCategoryColor.olCategoryColorDarkPurple },
+                { "preset24", OutlookCOM.OlCategoryColor.olCategoryColorDarkMaroon }
+            };
+
             /// <summary>
             /// Convert from Outlook category colour to Color
             /// </summary>
@@ -91,11 +124,36 @@ namespace OutlookGoogleCalendarSync.Outlook {
                     return OutlookCOM.OlCategoryColor.olCategoryColorNone;
                 }
             }
+
+            public static Color RgbColourFromGraphPreset(String presetColour) {
+                if (string.IsNullOrEmpty(presetColour)) return Colours[OutlookCOM.OlCategoryColor.olCategoryColorNone];
+                if (!GraphPresets.TryGetValue(presetColour, out OutlookCOM.OlCategoryColor mappedColour)) {
+                    log.Warn("Unknown Graph category preset '" + presetColour + "'. Defaulting to no colour.");
+                    mappedColour = OutlookCOM.OlCategoryColor.olCategoryColorNone;
+                }
+                return RgbColour(mappedColour);
+            }
+
+            public static String GetClosestGraphPreset(Ogcs.Google.EventColour.Palette basePalette) {
+                try {
+                    var presetDistance = GraphPresets
+                        .Where(p => !p.Key.Equals("none", StringComparison.OrdinalIgnoreCase))
+                        .Select(p => new { Preset = p.Key, Diff = Ogcs.Google.EventColour.GetDiff(RgbColour(p.Value), basePalette.RgbValue) })
+                        .ToList();
+                    var minDistance = presetDistance.Min(x => x.Diff);
+                    return presetDistance.Find(x => x.Diff == minDistance).Preset;
+                } catch (System.Exception ex) {
+                    log.Warn("Failed to get closest Graph category preset for " + basePalette.ToString());
+                    Ogcs.Exception.Analyse(ex);
+                    return "none";
+                }
+            }
         }
 
         private static readonly ILog log = LogManager.GetLogger(typeof(Categories));
 
         private OutlookCOM.Categories _categories;
+        private List<Microsoft.Graph.OutlookCategory> _graphCategories = new List<Microsoft.Graph.OutlookCategory>();
         private OutlookCOM.Categories categories {
             get {
                 try {
@@ -123,6 +181,7 @@ namespace OutlookGoogleCalendarSync.Outlook {
 
         public void Dispose() {
             _categories = (OutlookCOM.Categories)Calendar.ReleaseObject(_categories);
+            _graphCategories = new List<Microsoft.Graph.OutlookCategory>();
         }
 
         /// <summary>
@@ -166,6 +225,13 @@ namespace OutlookGoogleCalendarSync.Outlook {
             }
         }
 
+        public void GetGraph(IEnumerable<Microsoft.Graph.OutlookCategory> categories) {
+            _graphCategories = (categories ?? Enumerable.Empty<Microsoft.Graph.OutlookCategory>())
+                .Where(c => !string.IsNullOrEmpty(c.DisplayName))
+                .OrderBy(c => c.DisplayName)
+                .ToList();
+        }
+
         public void BuildPicker(ref System.Windows.Forms.CheckedListBox clb) {
             clb.BeginUpdate();
             clb.Items.Clear();
@@ -187,6 +253,7 @@ namespace OutlookGoogleCalendarSync.Outlook {
         /// <param name="categoryName">The user named Outlook category</param>
         /// <returns>The Outlook category type</returns>
         public OutlookCOM.OlCategoryColor? OutlookColour(String categoryName) {
+            if (Settings.Profile.InPlay().IsOutlookOnline) return null;
             if (string.IsNullOrEmpty(categoryName)) log.Warn("Category name is empty.");
 
             foreach (OutlookCOM.Category category in this.categories) {
@@ -201,6 +268,7 @@ namespace OutlookGoogleCalendarSync.Outlook {
         /// Check all the Outlook categories can still be accessed. If not, refresh them.
         /// </summary>
         public void ValidateCategories() {
+            if (Settings.Profile.InPlay().IsOutlookOnline) return;
             try {
                 if (this._categories != null && this._categories.Count > 0) { }
             } catch (System.Exception ex) {
@@ -235,7 +303,9 @@ namespace OutlookGoogleCalendarSync.Outlook {
         /// </summary>
         private List<String> getNames() {
             List<String> names = new List<String>();
-            if (this._categories != null) {
+            if (Settings.Profile.InPlay().IsOutlookOnline) {
+                names.AddRange(_graphCategories.Select(c => c.DisplayName));
+            } else if (this._categories != null) {
                 foreach (OutlookCOM.Category category in this.categories) {
                     names.Add(category.Name);
                 }
@@ -249,10 +319,28 @@ namespace OutlookGoogleCalendarSync.Outlook {
         /// <returns>List to be used in dropdown, for example</returns>
         public List<Categories.ColourInfo> DropdownItems() {
             List<Categories.ColourInfo> items = new List<Categories.ColourInfo>();
-            foreach (OutlookCOM.Category category in this.categories) {
-                items.Add(new Categories.ColourInfo(category.Color, Categories.Map.RgbColour(category.Color), category.Name));
+            if (Settings.Profile.InPlay().IsOutlookOnline) {
+                foreach (Microsoft.Graph.OutlookCategory category in _graphCategories) {
+                    String preset = category.Color?.ToString() ?? "none";
+                    items.Add(new Categories.ColourInfo(
+                        OutlookCOM.OlCategoryColor.olCategoryColorNone,
+                        Categories.Map.RgbColourFromGraphPreset(preset),
+                        category.DisplayName,
+                        preset
+                    ));
+                }
+            } else {
+                foreach (OutlookCOM.Category category in this.categories) {
+                    items.Add(new Categories.ColourInfo(category.Color, Categories.Map.RgbColour(category.Color), category.Name));
+                }
             }
             return items.OrderBy(i => i.Text).ToList();
+        }
+
+        public String GraphColour(String categoryName) {
+            if (string.IsNullOrEmpty(categoryName)) return null;
+            Microsoft.Graph.OutlookCategory category = _graphCategories.FirstOrDefault(c => c.DisplayName == categoryName.Trim());
+            return category?.Color?.ToString();
         }
 
         /// <summary>

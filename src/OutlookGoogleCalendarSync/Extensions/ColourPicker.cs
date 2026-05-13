@@ -36,7 +36,8 @@ namespace OutlookGoogleCalendarSync.Extensions {
         /// Add just the colours associated with categories
         /// </summary>
         public void AddCategoryColours() {
-            if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003) return;
+            if (!Settings.Profile.InPlay().IsOutlookOnline &&
+                Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003) return;
             if (Outlook.Calendar.Categories == null) return; //***O365
 
             Items.AddRange(Outlook.Calendar.Categories.DropdownItems().ToArray());
@@ -102,7 +103,7 @@ namespace OutlookGoogleCalendarSync.Extensions {
         public void Rebuild(Boolean force = false) {
             ToolTip loading = new ToolTip();
             try {
-                Ogcs.Google.EventColour.Palette currentSelection = null;
+                Ogcs.Google.EventColour.Palette currentSelection = SelectedItem;
 
                 if (Ogcs.Google.Calendar.IsInstanceNull || !Ogcs.Google.Calendar.Instance.ColourPalette.IsCached()) {
                     loading.SetToolTip(this, "Retrieving colours from Google...");
@@ -111,7 +112,6 @@ namespace OutlookGoogleCalendarSync.Extensions {
                     loading.Show("Retrieving colours from Google...", this, this.FindForm().PointToClient(this.Parent.PointToScreen(this.Location)));
 
                     Ogcs.Google.Calendar.Instance.ColourPalette.Get();
-                    currentSelection = (Ogcs.Google.EventColour.Palette)SelectedItem;
                     
                     loading.Hide(this);
                 }
@@ -490,9 +490,7 @@ namespace OutlookGoogleCalendarSync.Extensions {
 
                 KeyValuePair<Outlook.Categories.ColourInfo, String> kvp = (KeyValuePair<Outlook.Categories.ColourInfo, String>)cbColour.Items[indexItem];
                 if (kvp.Key != null) {
-                    // Get the colour
-                    OlCategoryColor olColour = kvp.Key.OutlookCategory;
-                    Brush brush = new SolidBrush(Outlook.Categories.Map.RgbColour(olColour));
+                    Brush brush = new SolidBrush(kvp.Key.Colour);
 
                     DrawComboboxItemColour(cbColour, brush, kvp.Value, e);
                 }

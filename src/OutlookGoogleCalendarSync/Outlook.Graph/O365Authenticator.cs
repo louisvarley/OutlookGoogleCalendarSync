@@ -107,7 +107,7 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
             MsalCacheHelper cacheHelper = MsalCacheHelper.CreateAsync(storageProperties).Result;
             cacheHelper.RegisterCache(oAuthApp.UserTokenCache);
 
-            String[] scopes = new string[] { "user.read", "Calendars.ReadWrite", "Calendars.ReadWrite.Shared" };
+            String[] scopes = new string[] { "user.read", "Calendars.ReadWrite", "Calendars.ReadWrite.Shared", "MailboxSettings.Read" };
 
             IAccount firstAccount = (await oAuthApp.GetAccountsAsync()).FirstOrDefault();
             if (firstAccount == null)
@@ -125,15 +125,35 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
                     Forms.Main.Instance.Console.Update("Preparing to authenticate with Microsoft.", verbose: true);
                 }).Start();
 
-                IntPtr parentWindow = (IntPtr)Forms.Main.Instance.GetControlPropertyThreadSafe(Forms.Main.Instance, "Handle");
+                // If OGCS is running in tray/minimised, restore it so interactive auth has a visible owner.
+                if (Forms.Main.Instance.InvokeRequired) {
+                    Forms.Main.Instance.Invoke(new System.Action(() => {
+                        if (!Forms.Main.Instance.Visible ||
+                            Forms.Main.Instance.WindowState == System.Windows.Forms.FormWindowState.Minimized ||
+                            !Forms.Main.Instance.ShowInTaskbar) {
+                            Forms.Main.Instance.MainFormShow(true);
+                        }
+                    }));
+                } else if (!Forms.Main.Instance.Visible ||
+                    Forms.Main.Instance.WindowState == System.Windows.Forms.FormWindowState.Minimized ||
+                    !Forms.Main.Instance.ShowInTaskbar) {
+                    Forms.Main.Instance.MainFormShow(true);
+                }
+
+                IntPtr parentWindow = IntPtr.Zero;
+                if (Forms.Main.Instance.IsHandleCreated && Forms.Main.Instance.Visible)
+                    parentWindow = (IntPtr)Forms.Main.Instance.GetControlPropertyThreadSafe(Forms.Main.Instance, "Handle");
 
                 try {
-                    authResult = await oAuthApp.AcquireTokenInteractive(scopes)
+                    var interactiveRequest = oAuthApp.AcquireTokenInteractive(scopes)
                         .WithAccount(firstAccount)
                         .WithPrompt(!tokenFileExists ? Microsoft.Identity.Client.Prompt.SelectAccount : Microsoft.Identity.Client.Prompt.Consent)
-                        .WithUseEmbeddedWebView(false)
-                        .WithParentActivityOrWindow(parentWindow)
-                        .ExecuteAsync();
+                        .WithUseEmbeddedWebView(false);
+
+                    if (parentWindow != IntPtr.Zero)
+                        interactiveRequest = interactiveRequest.WithParentActivityOrWindow(parentWindow);
+
+                    authResult = await interactiveRequest.ExecuteAsync();
 
                     if (tokenFileExists)
                         log.Info("User has provided Graph authorisation and credential file saved.");

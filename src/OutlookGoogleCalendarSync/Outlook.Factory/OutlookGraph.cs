@@ -520,27 +520,30 @@ namespace OutlookGoogleCalendarSync.Outlook {
         }
 
         public void RefreshCategories() {
-            /*log.Debug("Refreshing categories...");
-            try {
-                Outlook.Calendar.Categories.Get(oApp, useOutlookCalendar);
-            } catch (System.Exception ex) {
-                if (OGCSexception.GetErrorCode(ex) == "0x800706BA") { //RPC Server Unavailable
-                    Outlook.Calendar.AttachToOutlook(ref oApp);
-                    Outlook.Calendar.Categories.Get(oApp, useOutlookCalendar);
-                }
-            }
-            Extensions.OutlookColourPicker outlookColours = new Extensions.OutlookColourPicker();
-            outlookColours.AddColourItems();
+            log.Debug("Refreshing categories...");
+
+            Outlook.Calendar.Categories ??= new Outlook.Categories();
+
+            List<OutlookCategory> categories = Outlook.Graph.Calendar.Instance.GetMasterCategories(force: true) ?? new List<OutlookCategory>();
+            Outlook.Calendar.Categories.GetGraph(categories);
+
+            if (Forms.Main.Instance == null || Settings.Profile.InPlay() == null || Forms.Main.Instance.ActiveCalendarProfile == null)
+                return;
 
             if (Settings.Profile.InPlay().Equals(Forms.Main.Instance.ActiveCalendarProfile)) {
-                Forms.Main.Instance.ddOutlookColour = outlookColours;
-                foreach (OutlookOgcs.Categories.ColourInfo cInfo in Forms.Main.Instance.ddOutlookColour.Items) {
-                    if (cInfo.OutlookCategory.ToString() == Forms.Main.Instance.ActiveCalendarProfile.SetEntriesColourValue &&
+                Extensions.OutlookColourPicker outlookColours = new Extensions.OutlookColourPicker();
+                outlookColours.AddColourItems();
+                Forms.Main.Instance.ddOutlookColour.Items.Clear();
+                foreach (Outlook.Categories.ColourInfo cInfo in outlookColours.Items) {
+                    Forms.Main.Instance.ddOutlookColour.Items.Add(cInfo);
+                    if (string.Equals(cInfo.GraphCategoryColor, Forms.Main.Instance.ActiveCalendarProfile.SetEntriesColourValue, StringComparison.OrdinalIgnoreCase) &&
                         cInfo.Text == Forms.Main.Instance.ActiveCalendarProfile.SetEntriesColourName) {
                         Forms.Main.Instance.ddOutlookColour.SelectedItem = cInfo;
                     }
                 }
-            }*/
+                if (Forms.Main.Instance.ddOutlookColour.SelectedIndex == -1 && Forms.Main.Instance.ddOutlookColour.Items.Count > 0)
+                    Forms.Main.Instance.ddOutlookColour.SelectedIndex = 0;
+            }
         }
 
         #region TimeZone Stuff

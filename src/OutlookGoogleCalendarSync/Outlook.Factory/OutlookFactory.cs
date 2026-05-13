@@ -72,6 +72,18 @@ namespace OutlookGoogleCalendarSync.Outlook {
         private const Boolean testingGraph = false;
 
         public static Interface GetOutlookInterface() {
+            // For Graph profiles, do not probe Outlook COM version - it can fail when Outlook is busy.
+            try {
+                if (Settings.AreLoaded) {
+                    SettingsStore.Calendar profile = Forms.Main.Instance?.ActiveCalendarProfile ?? Settings.Instance.Calendars?.FirstOrDefault();
+                    if (profile?.IsOutlookOnline ?? false) {
+                        return new OutlookGraph();
+                    }
+                }
+            } catch (System.Exception ex) {
+                log.Debug("Failed determining profile type before selecting Outlook interface. " + ex.Message);
+            }
+
             if (NoClient()) {
                 return new OutlookGraph();
             } else if (OutlookVersionName >= OutlookVersionNames.Outlook2007) {

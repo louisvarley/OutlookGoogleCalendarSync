@@ -250,7 +250,10 @@ namespace OutlookGoogleCalendarSync.Forms {
                     }
                 }
 
-                ddGoogleColour.SelectedIndex = Convert.ToInt16(Ogcs.Google.Calendar.Instance.GetColour(ddOutlookColour.SelectedItem.OutlookCategory).Id);
+                Ogcs.Google.EventColour.Palette googleColour = Forms.Main.Instance.ActiveCalendarProfile.IsOutlookOnline
+                    ? Ogcs.Google.Calendar.Instance.ColourPalette.GetClosestColour(ddOutlookColour.SelectedItem.Colour)
+                    : Ogcs.Google.Calendar.Instance.GetColour(ddOutlookColour.SelectedItem.OutlookCategory);
+                ddGoogleColour.SelectedIndex = Convert.ToInt16(googleColour.Id);
 
             } catch (System.Exception ex) {
                 ex.Analyse("ddOutlookColour_SelectedIndexChanged(): Could not update ddGoogleColour.");

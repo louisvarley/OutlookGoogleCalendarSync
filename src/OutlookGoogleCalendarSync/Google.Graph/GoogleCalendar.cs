@@ -599,7 +599,7 @@ namespace OutlookGoogleCalendarSync.Google.Graph {
                 ev.Location = Obfuscate.ApplyRegex(Obfuscate.Property.Location, ai.Location.DisplayName, null, Sync.Direction.OutlookToGoogle);
             ev.Visibility = getPrivacy(ai.Sensitivity, null);
             ev.Transparency = getAvailability(ai.ShowAs, null);
-            //ev.ColorId = getColour(ai.Categories, null)?.Id ?? EventColour.Palette.NullPalette.Id;
+            ev.ColorId = getColour(getCategories(ai), null)?.Id ?? EventColour.Palette.NullPalette.Id;
 
             ev.Attendees = new List<GcalData.EventAttendee>();
             if (profile.AddAttendees && !Ogcs.Google.Calendar.APIlimitReached_attendee) {
@@ -946,10 +946,11 @@ namespace OutlookGoogleCalendarSync.Google.Graph {
                 ev.Transparency = oFreeBusy;
             }
 
-            /*if (profile.AddColours || profile.SetEntriesColour) {
-                EventColour.Palette gColour = this.ColourPalette.GetColour(ev.ColorId);
-                EventColour.Palette oColour = getColour(ai.Categories, gColour);
-                if (!string.IsNullOrEmpty(ai.Categories) && oColour == null)
+            if (profile.AddColours || profile.SetEntriesColour) {
+                EventColour.Palette gColour = Ogcs.Google.Calendar.Instance.ColourPalette.GetColour(ev.ColorId);
+                List<String> aiCategories = getCategories(ai);
+                EventColour.Palette oColour = getColour(aiCategories, gColour);
+                if (aiCategories.Count > 0 && oColour == null)
                     log.Warn("Not comparing colour as there is a problem with the mapping.");
                 else {
                     oColour ??= EventColour.Palette.NullPalette;
@@ -957,7 +958,7 @@ namespace OutlookGoogleCalendarSync.Google.Graph {
                         ev.ColorId = oColour.Id;
                     }
                 }
-            }*/
+            }
 
             if (profile.AddAttendees && !Google.Calendar.APIlimitReached_attendee) {
                 if (ai.Attendees.Count() > profile.MaxAttendees) {
@@ -1630,81 +1631,69 @@ namespace OutlookGoogleCalendarSync.Google.Graph {
             }
         }
 
-        /*
+        private static List<String> getCategories(Microsoft.Graph.Event ai) {
+            object value = ai?.GetType().GetProperty("Categories")?.GetValue(ai);
+            if (value == null) return new List<String>();
+            if (value is IEnumerable<String> enumerable)
+                return enumerable.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToList();
+            if (value is String categoryString)
+                return categoryString.Split(new[] { Outlook.Calendar.Categories.Delimiter }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => v.Trim())
+                    .Where(v => !string.IsNullOrEmpty(v))
+                    .ToList();
+            return new List<String>();
+        }
+
         /// <summary>
-        /// Get the Google palette colour from a list of Outlook categories
+        /// Get the Google palette colour from Outlook category names.
         /// </summary>
-        /// <param name="aiCategories">The appointment item "categories" field</param>
-        /// <param name="gColour">The Google palette, if already assigned to Event</param>
-        /// <returns>A match or a "null" Palette signifying no match</returns>
-        private EventColour.Palette getColour(String aiCategories, EventColour.Palette gColour) {
+        private static EventColour.Palette getColour(List<String> aiCategories, EventColour.Palette gColour) {
             SettingsStore.Calendar profile = Sync.Engine.Calendar.Instance.Profile;
 
             if (!profile.AddColours && !profile.SetEntriesColour) return EventColour.Palette.NullPalette;
 
-            OlCategoryColor? categoryColour = null;
-
             if (profile.SetEntriesColour) {
-                if (profile.TargetCalendar.Id == Sync.Direction.GoogleToOutlook.Id) { //Colour forced to sync in other direction
-                    if (gColour == null) //Creating item
-                        return this.ColourPalette.ActivePalette[Convert.ToInt16(profile.SetEntriesColourGoogleId)];
-                    else return gColour;
-
-                } else {
-                    if (!profile.CreatedItemsOnly || (profile.CreatedItemsOnly && gColour == null)) {
-                        return this.ColourPalette.ActivePalette[Convert.ToInt16(profile.SetEntriesColourGoogleId)];
-                    } else return gColour;
+                EventColour.Palette overrideColour = Ogcs.Google.Calendar.Instance.ColourPalette.ActivePalette[Convert.ToInt16(profile.SetEntriesColourGoogleId)];
+                if (profile.TargetCalendar.Id == Sync.Direction.GoogleToOutlook.Id) {
+                    return gColour ?? overrideColour;
                 }
-
-            } else {
-                getOutlookCategoryColour(aiCategories, ref categoryColour);
+                if (!profile.CreatedItemsOnly || (profile.CreatedItemsOnly && gColour == null))
+                    return overrideColour;
+                return gColour;
             }
-            if (categoryColour == null)
-                return null;
-            else if (categoryColour == OlCategoryColor.olCategoryColorNone)
-                return EventColour.Palette.NullPalette;
-            else
-                return GetColour((OlCategoryColor)categoryColour);
+
+            String categoryName = aiCategories?.FirstOrDefault();
+            if (string.IsNullOrEmpty(categoryName)) return EventColour.Palette.NullPalette;
+            return GetColour(categoryName);
         }
 
-        public EventColour.Palette GetColour(OlCategoryColor categoryColour) {
-            EventColour.Palette gColour = null;
-
+        public static EventColour.Palette GetColour(String categoryName) {
             SettingsStore.Calendar profile = Settings.Profile.InPlay();
+            if (string.IsNullOrEmpty(categoryName)) return EventColour.Palette.NullPalette;
+
             if (profile.ColourMaps.Count > 0) {
-                KeyValuePair<String, String> kvp = profile.ColourMaps.FirstOrDefault(cm => Outlook.Calendar.Categories.OutlookColour(cm.Key) == categoryColour);
-                if (kvp.Key != null) {
-                    gColour = ColourPalette.ActivePalette.FirstOrDefault(ap => ap.Id == kvp.Value);
-                    if (gColour != null) {
-                        log.Debug("Colour mapping used: " + kvp.Key + " => " + kvp.Value + ":" + gColour.Name);
-                        return gColour;
+                KeyValuePair<String, String> kvp = profile.ColourMaps.FirstOrDefault(cm => cm.Key == categoryName);
+                if (!string.IsNullOrEmpty(kvp.Key)) {
+                    EventColour.Palette mapped = Ogcs.Google.Calendar.Instance.ColourPalette.ActivePalette.FirstOrDefault(ap => ap.Id == kvp.Value);
+                    if (mapped != null) {
+                        log.Debug("Colour mapping used: " + kvp.Key + " => " + kvp.Value + ":" + mapped.Name);
+                        return mapped;
                     }
                 }
             }
-            //Algorithmic closest colour matching
-            System.Drawing.Color color = Outlook.Categories.Map.RgbColour((OlCategoryColor)categoryColour);
-            EventColour.Palette closest = ColourPalette.GetClosestColour(color);
-            return (closest.Id == "0") ? EventColour.Palette.NullPalette : closest;
-        }
 
-        /// <summary>
-        /// Get the first Outlook category colour from any defined against an Appointment's category(ies)
-        /// </summary>
-        /// <param name="aiCategories">The appointment categories assigned</param>
-        /// <param name="categoryColour">The category colour identified</param>
-        private void getOutlookCategoryColour(String aiCategories, ref OlCategoryColor? categoryColour) {
-            if (!string.IsNullOrEmpty(aiCategories)) {
-                log.Fine("Categories: " + aiCategories);
-                try {
-                    String category = aiCategories.Split(new[] { Outlook.Calendar.Categories.Delimiter }, StringSplitOptions.None).FirstOrDefault();
-                    categoryColour = Outlook.Calendar.Categories.OutlookColour(category);
-                } catch (System.Exception ex) {
-                    log.Error("Failed determining colour for Event from AppointmentItem categories: " + aiCategories);
-                    Ogcs.Exception.Analyse(ex);
-                }
-            }
+            Microsoft.Graph.OutlookCategory category = Outlook.Graph.Calendar.Instance
+                .GetMasterCategories()
+                .FirstOrDefault(c => c.DisplayName == categoryName);
+            if (category == null) return null;
+
+            String preset = category.Color?.ToString() ?? "none";
+            if (preset.Equals("none", StringComparison.OrdinalIgnoreCase)) return EventColour.Palette.NullPalette;
+
+            System.Drawing.Color color = Outlook.Categories.Map.RgbColourFromGraphPreset(preset);
+            EventColour.Palette closest = Ogcs.Google.Calendar.Instance.ColourPalette.GetClosestColour(color);
+            return closest.Id == "0" ? EventColour.Palette.NullPalette : closest;
         }
-        */
 
         public static GcalData.EventAttendee CreateAttendee(Microsoft.Graph.Attendee recipient, Boolean isOrganiser) {
             Ogcs.Google.EventAttendee ea = new Ogcs.Google.EventAttendee();

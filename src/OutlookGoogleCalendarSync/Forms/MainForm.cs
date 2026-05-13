@@ -380,8 +380,8 @@ namespace OutlookGoogleCalendarSync.Forms {
                     #endregion
                     #region Categories
                     cbCategoryFilter.SelectedItem = profile.CategoriesRestrictBy == SettingsStore.Calendar.RestrictBy.Include ? "Include" : "Exclude";
-                    if (profile.IsOutlookOnline) {
-                        //***Categories still to do
+                    if (profile.IsOutlookOnline || Outlook.Factory.OutlookVersionName != Outlook.Factory.OutlookVersionNames.Outlook2003) {
+                        refreshCategories();
                     } else if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003) {
                         clbCategories.Items.Clear();
                         clbCategories.Items.Add("Outlook 2003 has no categories");
@@ -391,9 +391,6 @@ namespace OutlookGoogleCalendarSync.Forms {
                         btColourMap.Visible = false;
                         profile.AddColours = false;
                         cbAddColours.Enabled = false;
-                    } else {
-                        Outlook.Calendar.Categories?.BuildPicker(ref clbCategories);
-                        enableOutlookSettingsUI(true);
                     }
                     cbDeleteWhenCatExcl.Checked = profile.DeleteWhenCategoryExcluded;
                     #endregion
@@ -519,12 +516,12 @@ namespace OutlookGoogleCalendarSync.Forms {
                     cbAvailable.Checked = profile.SetEntriesAvailable;
                     buildAvailabilityDropdown();
                     cbColour.Checked = profile.SetEntriesColour;
-                    if (!profile.IsOutlookOnline) // ***O365 categories
-                        ddOutlookColour.AddColourItems();
+                    ddOutlookColour.AddColourItems();
 
                     ddOutlookColour.SelectedIndexChanged -= ddOutlookColour_SelectedIndexChanged;
                     foreach (Outlook.Categories.ColourInfo cInfo in ddOutlookColour.Items) {
-                        if (cInfo.OutlookCategory.ToString() == profile.SetEntriesColourValue &&
+                        String categoryValue = profile.IsOutlookOnline ? cInfo.GraphCategoryColor : cInfo.OutlookCategory.ToString();
+                        if (categoryValue == profile.SetEntriesColourValue &&
                             cInfo.Text == profile.SetEntriesColourName) {
                             ddOutlookColour.SelectedItem = cInfo;
                             break;
@@ -1381,8 +1378,9 @@ namespace OutlookGoogleCalendarSync.Forms {
                 enableOutlookSettingsUI(true);
                 ActiveCalendarProfile.OutlookService = Ogcs.Outlook.Calendar.Service.Graph;
                 cbOutlookCalendars_BuildList();
-                //***refreshCategories();
-                this.clbCategories.Enabled = false; //***
+                refreshCategories();
+            } else if (Outlook.Factory.OutlookVersionName != Outlook.Factory.OutlookVersionNames.Outlook2003) {
+                refreshCategories();
             }
         }
 
@@ -2169,7 +2167,10 @@ namespace OutlookGoogleCalendarSync.Forms {
                         ActiveCalendarProfile.TargetCalendar = Sync.Direction.GoogleToOutlook;
                         this.ddGoogleColour.Visible = false;
                         this.ddOutlookColour.Visible = true;
-                        if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
+                        this.ddOutlookColour.Enabled = cbColour.Checked;
+                        if (ActiveCalendarProfile.IsOutlookOnline)
+                            refreshCategories();
+                        else if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
                             this.cbColour.Checked = false;
                         break;
                     }
@@ -2177,7 +2178,10 @@ namespace OutlookGoogleCalendarSync.Forms {
                         ActiveCalendarProfile.TargetCalendar = Sync.Direction.Bidirectional;
                         this.ddGoogleColour.Visible = false;
                         this.ddOutlookColour.Visible = true;
-                        if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
+                        this.ddOutlookColour.Enabled = cbColour.Checked;
+                        if (ActiveCalendarProfile.IsOutlookOnline)
+                            refreshCategories();
+                        else if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
                             this.cbColour.Checked = false;
                         break;
                     }
@@ -2220,9 +2224,19 @@ namespace OutlookGoogleCalendarSync.Forms {
         private void ddOutlookColour_SelectedIndexChanged(object sender, EventArgs e) {
             if (this.LoadingProfileConfig) return;
 
-            ActiveCalendarProfile.SetEntriesColourValue = ddOutlookColour.SelectedItem.OutlookCategory.ToString();
-            ActiveCalendarProfile.SetEntriesColourName = ddOutlookColour.SelectedItem.Text;
+            Outlook.Categories.ColourInfo selectedOutlookColour = ddOutlookColour.SelectedItem;
+            if (selectedOutlookColour == null) {
+                log.Warn("No Outlook category is selected, so skipping colour/category mapping update.");
+                return;
+            }
 
+            ActiveCalendarProfile.SetEntriesColourValue = ActiveCalendarProfile.IsOutlookOnline ?
+                selectedOutlookColour.GraphCategoryColor :
+                selectedOutlookColour.OutlookCategory.ToString();
+            ActiveCalendarProfile.SetEntriesColourName = selectedOutlookColour.Text;
+
+            if (ActiveCalendarProfile.SyncDirection?.Id == Sync.Direction.Bidirectional.Id)
+                return;
             if (sender == null) return;
             try {
                 ddGoogleColour.SelectedIndexChanged -= ddGoogleColour_SelectedIndexChanged;
@@ -2233,7 +2247,10 @@ namespace OutlookGoogleCalendarSync.Forms {
                 else {
                     if (ddGoogleColour.Items.Count != Ogcs.Google.Calendar.Instance.ColourPalette.ActivePalette.Count)
                         ddGoogleColour.AddPaletteColours();
-                    palette = Ogcs.Google.Calendar.Instance.GetColour(ddOutlookColour.SelectedItem.OutlookCategory);
+                    if (ActiveCalendarProfile.IsOutlookOnline)
+                        palette = Ogcs.Google.Calendar.Instance.ColourPalette.GetClosestColour(selectedOutlookColour.Colour);
+                    else
+                        palette = Ogcs.Google.Calendar.Instance.GetColour(selectedOutlookColour.OutlookCategory);
                     ddGoogleColour.SelectedIndex = Convert.ToInt16(palette.Id); 
                 }
 
@@ -2252,8 +2269,16 @@ namespace OutlookGoogleCalendarSync.Forms {
         private void ddGoogleColour_SelectedIndexChanged(object sender, EventArgs e) {
             if (this.LoadingProfileConfig) return;
 
-            ActiveCalendarProfile.SetEntriesColourGoogleId = ddGoogleColour.SelectedItem.Id;
+            Ogcs.Google.EventColour.Palette selectedGoogleColour = ddGoogleColour.SelectedItem;
+            if (selectedGoogleColour == null) {
+                log.Warn("No Google colour is selected, so skipping colour/category mapping update.");
+                return;
+            }
 
+            ActiveCalendarProfile.SetEntriesColourGoogleId = selectedGoogleColour.Id;
+
+            if (ActiveCalendarProfile.SyncDirection?.Id == Sync.Direction.Bidirectional.Id)
+                return;
             if (sender == null) return;
             try {
                 ddOutlookColour.SelectedIndexChanged -= ddOutlookColour_SelectedIndexChanged;
@@ -2261,8 +2286,10 @@ namespace OutlookGoogleCalendarSync.Forms {
                 String oCatName = null;
                 if (Ogcs.Google.Calendar.IsColourPaletteNull || !Ogcs.Google.Calendar.Instance.ColourPalette.IsCached())
                     oCatName = ActiveCalendarProfile.SetEntriesColourName;
+                else if (ActiveCalendarProfile.IsOutlookOnline)
+                    oCatName = Outlook.Graph.Calendar.Instance.GetCategoryColour(selectedGoogleColour.Id);
                 else
-                    oCatName = Outlook.Calendar.Instance.GetCategoryColour(ddGoogleColour.SelectedItem.Id);
+                    oCatName = Outlook.Calendar.Instance.GetCategoryColour(selectedGoogleColour.Id);
                 
                 foreach (Outlook.Categories.ColourInfo cInfo in ddOutlookColour.Items) {
                     if (cInfo.Text == oCatName) {
@@ -2536,10 +2563,6 @@ namespace OutlookGoogleCalendarSync.Forms {
             }
             if (string.IsNullOrEmpty(ActiveCalendarProfile.UseGoogleCalendar?.Id)) {
                 Ogcs.Extensions.MessageBox.Show("You need to select a Google Calendar first on the 'Settings' tab.", "Configuration Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            if (ActiveCalendarProfile.IsOutlookOnline) {
-                Extensions.MessageBox.Show("Colours are not yet supported for Outlook Online.", "Unsupported feature", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             try {

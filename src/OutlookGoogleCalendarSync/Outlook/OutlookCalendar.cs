@@ -1193,6 +1193,9 @@ namespace OutlookGoogleCalendarSync.Outlook {
         /// <param name="createMissingCategory">If true, create mapped Outlook category</param>
         /// <returns></returns>
         public String GetCategoryColour(String gColourId, Boolean createMissingCategory = true) {
+            if (Settings.Profile.InPlay().IsOutlookOnline)
+                return Outlook.Graph.Calendar.Instance.GetCategoryColour(gColourId, createMissingCategory);
+
             OlCategoryColor? outlookColour = null;
 
             SettingsStore.Calendar profile = Settings.Profile.InPlay();

@@ -68,8 +68,12 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
         public Dictionary<String, String> ExcludedByCategory { get; private set; }
 
         private Dictionary<String, OutlookCalendarListEntry> calendarFolders = new Dictionary<string, OutlookCalendarListEntry>();
+        private List<OutlookCategory> masterCategories = new List<OutlookCategory>();
         public Dictionary<String, OutlookCalendarListEntry> CalendarFolders {
             get { return calendarFolders; }
+        }
+        public List<OutlookCategory> MasterCategories {
+            get { return masterCategories; }
         }
 
         /// <summary>Retrieve calendar list from the cloud.</summary>
@@ -102,6 +106,87 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
             }
 
             return calendarFolders;
+        }
+
+        public List<OutlookCategory> GetMasterCategories(Boolean force = false) {
+            if (!force && masterCategories.Count > 0) return masterCategories;
+
+            List<OutlookCategory> categories = new List<OutlookCategory>();
+            try {
+                IOutlookUserMasterCategoriesCollectionRequest req = GraphClient.Me.Outlook.MasterCategories.Request();
+                req.Top(200);
+                IOutlookUserMasterCategoriesCollectionPage catPage = req.GetAsync().Result;
+                categories.AddRange(catPage.CurrentPage);
+                while (catPage.NextPageRequest != null) {
+                    catPage = catPage.NextPageRequest.GetAsync().Result;
+                    categories.AddRange(catPage.CurrentPage);
+                }
+            } catch (System.Exception ex) {
+                HandleAPIlimits(ref ex);
+                ex.Analyse("Failed retrieving Outlook master categories from Graph.");
+                categories = new List<OutlookCategory>();
+            }
+
+            masterCategories = categories
+                .Where(c => !string.IsNullOrEmpty(c.DisplayName))
+                .OrderBy(c => c.DisplayName)
+                .ToList();
+            return masterCategories;
+        }
+
+        public String GetCategoryColour(String gColourId, Boolean createMissingCategory = false) {
+            SettingsStore.Calendar profile = Settings.Profile.InPlay();
+            if (profile.ColourMaps.Count > 0) {
+                KeyValuePair<String, String> kvp = profile.ColourMaps.FirstOrDefault(cm => cm.Value == gColourId);
+                if (!string.IsNullOrEmpty(kvp.Key)) {
+                    log.Debug("Colour mapping used: " + kvp.Value + ":" + Ogcs.Google.Calendar.Instance.ColourPalette.GetColour(gColourId).Name + " => " + kvp.Key);
+                    return kvp.Key;
+                }
+            }
+
+            Ogcs.Google.EventColour.Palette palette = Ogcs.Google.Calendar.Instance.ColourPalette.GetColour(gColourId);
+            if (palette == Ogcs.Google.EventColour.Palette.NullPalette) return null;
+
+            String closestPreset = Outlook.Categories.Map.GetClosestGraphPreset(palette);
+            OutlookCategory matchedCategory = GetMasterCategories().FirstOrDefault(c =>
+                string.Equals(c.Color?.ToString(), closestPreset, StringComparison.OrdinalIgnoreCase));
+            return matchedCategory?.DisplayName;
+        }
+
+        private static List<String> getCategories(Event ai) {
+            object value = ai?.GetType().GetProperty("Categories")?.GetValue(ai);
+            if (value == null) return new List<String>();
+
+            if (value is IEnumerable<string> listValue)
+                return listValue.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToList();
+
+            if (value is string stringValue)
+                return stringValue.Split(new[] { Outlook.Calendar.Categories.Delimiter }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => v.Trim())
+                    .Where(v => !string.IsNullOrEmpty(v))
+                    .ToList();
+
+            return new List<String>();
+        }
+
+        private static void setCategories(Event ai, List<String> categories) {
+            var property = ai?.GetType().GetProperty("Categories");
+            if (property == null || !property.CanWrite) return;
+
+            List<String> cleanCategories = (categories ?? new List<String>())
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (property.PropertyType == typeof(string)) {
+                property.SetValue(ai, string.Join(Outlook.Calendar.Categories.Delimiter, cleanCategories));
+                return;
+            }
+
+            if (typeof(IEnumerable<string>).IsAssignableFrom(property.PropertyType)) {
+                property.SetValue(ai, cleanCategories);
+            }
         }
 
         /// <summary>
@@ -311,27 +396,32 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
             List<Event> privacy = new();
             List<Event> subject = new();
             List<Event> response = new();
+            if (profile.Categories.Count > 0) {
+                List<Event> categoryExcluded = new();
+                foreach (Event ai in result) {
+                    List<String> eventCategories = getCategories(ai);
+                    Boolean hasNoCategory = eventCategories.Count == 0;
+                    Boolean hasMatch = eventCategories.Intersect(profile.Categories).Any();
+                    Boolean filtered = false;
 
-            /*              
-                //Categories
-                try {
                     if (profile.CategoriesRestrictBy == SettingsStore.Calendar.RestrictBy.Include) {
-                        filtered = (profile.Categories.Count() == 0 || (ai.Categories == null && !profile.Categories.Contains("<No category assigned>")) ||
-                            (ai.Categories != null && ai.Categories.Split(new[] { Categories.Delimiter }, StringSplitOptions.None).Intersect(profile.Categories).Count() == 0));
-
+                        filtered = (hasNoCategory && !profile.Categories.Contains("<No category assigned>")) || (!hasNoCategory && !hasMatch);
                     } else if (profile.CategoriesRestrictBy == SettingsStore.Calendar.RestrictBy.Exclude) {
-                        filtered = (profile.Categories.Count() > 0 && ((ai.Categories == null && profile.Categories.Contains("<No category assigned>")) ||
-                            (ai.Categories != null && ai.Categories.Split(new[] { Categories.Delimiter }, StringSplitOptions.None).Intersect(profile.Categories).Count() > 0)));
+                        filtered = (hasNoCategory && profile.Categories.Contains("<No category assigned>")) || (!hasNoCategory && hasMatch);
                     }
-                } catch (System.Runtime.InteropServices.COMException ex) {
-                    if (ex.TargetSite.Name == "get_Categories") {
-                        log.Warn("Could not access Categories property for " + GetEventSummary(ai));
-                        filtered = ((profile.CategoriesRestrictBy == SettingsStore.Calendar.RestrictBy.Include && !profile.Categories.Contains("<No category assigned>")) ||
-                            (profile.CategoriesRestrictBy == SettingsStore.Calendar.RestrictBy.Exclude && profile.Categories.Contains("<No category assigned>")));
-                    } else throw;
+
+                    if (filtered) {
+                        categoryExcluded.Add(ai);
+                        String gEventId = CustomProperty.Get(ai, CustomProperty.MetadataId.gEventID);
+                        ExcludedByCategory[ai.Id] = gEventId;
+                    }
                 }
-                if (filtered) { ExcludedByCategory.Add(ai.EntryID, CustomProperty.Get(ai, CustomProperty.MetadataId.gEventID)); continue; }
-            */
+
+                if (categoryExcluded.Count > 0) {
+                    log.Debug(categoryExcluded.Count + " Outlook category filtered items excluded.");
+                    result = result.Except(categoryExcluded).ToList();
+                }
+            }
             //Availability, Privacy, Subject
             if (profile.SyncDirection.Id != Sync.Direction.GoogleToOutlook.Id) { //Sync direction means O->G will delete previously synced excluded items
                 List<Event> filterable = result.Where(ai => (ai.Type == EventType.SingleInstance || ai.Type == EventType.SeriesMaster)).ToList();
@@ -491,7 +581,8 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
             if (profile.AddLocation) ai.Location = new Location { DisplayName = Obfuscate.ApplyRegex(Obfuscate.Property.Location, ev.Location, null, Sync.Direction.GoogleToOutlook) };
             ai.Sensitivity = getPrivacy(ev.Visibility, null);
             ai.ShowAs = getAvailability(ev.Transparency, null);
-            //ai.Categories = getColour(ev.ColorId, null);
+            String eventCategory = getColour(ev.ColorId, null);
+            if (!string.IsNullOrEmpty(eventCategory)) setCategories(ai, new List<String> { eventCategory });
 
             if (profile.AddAttendees && ev.Attendees != null) {
                 if (ev.Attendees != null && ev.Attendees.Count > profile.MaxAttendees) {
@@ -830,31 +921,22 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
                 aiPatch.ShowAs = gFreeBusy;
             }
 
-            /*
-            if ((profile.AddColours || profile.SetEntriesColour) && (
-                ai.RecurrenceState == OlRecurrenceState.olApptMaster ||
-                ai.RecurrenceState == OlRecurrenceState.olApptNotRecurring)) //
-            {
+            if ((profile.AddColours || profile.SetEntriesColour) &&
+                (ai.Type == EventType.SeriesMaster || ai.Type == EventType.SingleInstance)) {
                 log.Fine("Comparing colours/categories");
-                List<String> aiCategories = new List<string>();
-                String oCategoryName = "";
-                if (!string.IsNullOrEmpty(ai.Categories)) {
-                    aiCategories = ai.Categories.Split(new[] { Categories.Delimiter }, StringSplitOptions.None).ToList();
-                    oCategoryName = aiCategories.FirstOrDefault();
-                }
+                List<String> aiCategories = getCategories(ai);
+                String oCategoryName = aiCategories.FirstOrDefault();
                 String gCategoryName = getColour(ev.ColorId, oCategoryName ?? "");
                 if (Sync.Engine.CompareAttribute("Category/Colour", Sync.Direction.GoogleToOutlook, gCategoryName, oCategoryName, sb, ref itemModified)) {
                     if (profile.SingleCategoryOnly)
                         aiCategories = new List<string>();
-                    else {
-                        //Only allow one OGCS category at a time (Google Events can only have one colour)
+                    else
                         aiCategories.RemoveAll(x => x.StartsWith("OGCS ") || x == gCategoryName);
-                    }
-                    aiCategories.Insert(0, gCategoryName);
-                    ai.Categories = String.Join(Categories.Delimiter, aiCategories.ToArray());
+
+                    if (!string.IsNullOrEmpty(gCategoryName)) aiCategories.Insert(0, gCategoryName);
+                    setCategories(aiPatch, aiCategories);
                 }
             }
-            */
             #region Attendees
             if (profile.AddAttendees) {
                 if (ev.Attendees != null && ev.Attendees.Count > profile.MaxAttendees) {
@@ -1253,6 +1335,41 @@ namespace OutlookGoogleCalendarSync.Outlook.Graph {
                         return overrideFbStatus;
                 }
             }
+        }
+
+        /// <summary>
+        /// Get the Outlook category name from a Google colour ID.
+        /// </summary>
+        /// <param name="gColourId">The Google colour ID</param>
+        /// <param name="oColour">The Outlook category name currently assigned to the event</param>
+        /// <returns>Outlook category name</returns>
+        private String getColour(String gColourId, String oColour) {
+            SettingsStore.Calendar profile = Sync.Engine.Calendar.Instance.Profile;
+
+            if (!profile.AddColours && !profile.SetEntriesColour) return "";
+
+            String overrideColour = profile.SetEntriesColourName;
+            if (string.IsNullOrEmpty(overrideColour) && !string.IsNullOrEmpty(profile.SetEntriesColourValue)) {
+                overrideColour = GetMasterCategories()
+                    .FirstOrDefault(c => string.Equals(c.Color?.ToString(), profile.SetEntriesColourValue, StringComparison.OrdinalIgnoreCase))
+                    ?.DisplayName;
+            }
+
+            if (profile.SetEntriesColour) {
+                if (profile.TargetCalendar.Id == Sync.Direction.OutlookToGoogle.Id) {
+                    if (oColour == null)
+                        return "";
+                    else
+                        return oColour;
+                } else {
+                    if (!profile.CreatedItemsOnly || (profile.CreatedItemsOnly && oColour == null))
+                        return overrideColour;
+                    else
+                        return oColour;
+                }
+            }
+
+            return GetCategoryColour(gColourId ?? "0");
         }
 
 
