@@ -1,13 +1,12 @@
-﻿using Ogcs = OutlookGoogleCalendarSync;
-using GcalData = Google.Apis.Calendar.v3.Data;
-using log4net;
-//using Microsoft.Office.Interop.Outlook;
+﻿using log4net;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using GcalData = Google.Apis.Calendar.v3.Data;
+using MsGraph = OutlookGoogleCalendarSync.Outlook.Graph.CustomClient;
+using Ogcs = OutlookGoogleCalendarSync;
 
 namespace OutlookGoogleCalendarSync.Sync {
     public partial class Engine {
@@ -46,7 +45,7 @@ namespace OutlookGoogleCalendarSync.Sync {
                 Console console = Forms.Main.Instance.Console;
                 console.Update("Finding Calendar Entries", Console.Markup.mag_right, newLine: false);
 
-                List<Microsoft.Graph.Event> outlookEntries = null;
+                List<MsGraph.Models.Event> outlookEntries = null;
                 List<GcalData.Event> googleEntries = null;
                 Ogcs.Google.Calendar.Instance.ExcludedByColour = new Dictionary<String, String>();
                 Ogcs.Google.Calendar.Instance.ExcludedByConfig = new List<String>();
@@ -58,6 +57,7 @@ namespace OutlookGoogleCalendarSync.Sync {
 
                 #region Read Outlook items
                 console.Update($"Scanning Outlook calendar '{Sync.Engine.Calendar.Instance.Profile.UseOutlookCalendar.Name}'...");
+                Outlook.Graph.Calendar.Instance.GetSettings();
                 outlookEntries = Outlook.Graph.Calendar.Instance.GetCalendarEntriesInRange(Sync.Engine.Calendar.Instance.Profile, false);
                 String consoleOutput = outlookEntries.Count + " Outlook calendar entries found.";
                 if (Outlook.Graph.Recurrence.OutlookExceptions != null && Outlook.Graph.Recurrence.OutlookExceptions.Count > 0)
@@ -79,7 +79,7 @@ namespace OutlookGoogleCalendarSync.Sync {
                 Outlook.Graph.Calendar.ExportToCSV("Outputting all Appointments.", "outlook_appointments.csv", outlookEntries);
 
                 Boolean success = true;
-                String bubbleText = "";
+                String bubbleText = $"Profile '{Profile._ProfileName}': Sync Summary\r\n";
 
                 if (this.Profile.ExtirpateOgcsMetadata) {
                     return extirpateCustomProperties(outlookEntries, googleEntries);
@@ -119,26 +119,27 @@ namespace OutlookGoogleCalendarSync.Sync {
                     if (Sync.Engine.Instance.CancellationPending) return SyncResult.UserCancelled;
                 }
                 if (!success) return SyncResult.Fail;
-                if (bubbleText != "") {
+                String[] bubbleLines = bubbleText.Split("\r\n".ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
+                if (bubbleLines.Count() > 1) {
                     log.Info(bubbleText.Replace("\r\n", ". "));
                     System.Text.RegularExpressions.Regex rgx = new System.Text.RegularExpressions.Regex(@"\D");
-                    String changes = rgx.Replace(bubbleText, "").Trim('0');
-                    if (Settings.Instance.ShowSystemNotifications &&
-                        (!Settings.Instance.ShowSystemNotificationsIfChange || !String.IsNullOrEmpty(changes))) Forms.Main.Instance.NotificationTray.ShowBubbleInfo(bubbleText);
+                    String changes = rgx.Replace(string.Join(".", bubbleText.Skip(1)), "").Trim('0');
+                    if (Settings.Instance.ShowSystemNotifications && (!Settings.Instance.ShowSystemNotificationsIfChange || !String.IsNullOrEmpty(changes)))
+                        Forms.Main.Instance.NotificationTray.ShowBubbleInfo(bubbleText);
                 }
 
                 return SyncResult.OK;
             }
 
-            private Boolean outlookToGoogle(List<Microsoft.Graph.Event> outlookEntries, List<GcalData.Event> googleEntries, ref String bubbleText) {
+            private Boolean outlookToGoogle(List<MsGraph.Models.Event> outlookEntries, List<GcalData.Event> googleEntries, ref String bubbleText) {
                 log.Debug("Synchronising from Outlook to Google.");
                 if (this.Profile.SyncDirection.Id == Sync.Direction.Bidirectional.Id)
                     Forms.Main.Instance.Console.Update("Syncing " + Sync.Direction.OutlookToGoogle.Name, Console.Markup.syncDirection, newLine: false);
 
                 //  Make copies of each list of events (Not strictly needed)
-                List<Microsoft.Graph.Event> googleEntriesToBeCreated = new(outlookEntries);
+                List<MsGraph.Models.Event> googleEntriesToBeCreated = new(outlookEntries);
                 List<GcalData.Event> googleEntriesToBeDeleted = new(googleEntries);
-                Dictionary<Microsoft.Graph.Event, GcalData.Event> entriesToBeCompared = new();
+                Dictionary<MsGraph.Models.Event, GcalData.Event> entriesToBeCompared = new();
 
                 Console console = Forms.Main.Instance.Console;
 
@@ -238,7 +239,7 @@ namespace OutlookGoogleCalendarSync.Sync {
                     #endregion
 
                 } finally {
-                    bubbleText = "Google: " + googleEntriesToBeCreated.Count + " created; " +
+                    bubbleText += "Google: " + googleEntriesToBeCreated.Count + " created; " +
                         googleEntriesToBeDeleted.Count + " deleted; " + entriesUpdated + " updated";
 
                     if (this.Profile.SyncDirection.Id == Direction.OutlookToGoogle.Id) {
@@ -251,14 +252,14 @@ namespace OutlookGoogleCalendarSync.Sync {
                 return true;
             }
 
-            private Boolean googleToOutlook(List<GcalData.Event> googleEntries, List<Microsoft.Graph.Event> outlookEntries, ref String bubbleText) {
+            private Boolean googleToOutlook(List<GcalData.Event> googleEntries, List<MsGraph.Models.Event> outlookEntries, ref String bubbleText) {
                 log.Debug("Synchronising from Google to Outlook.");
                 if (this.Profile.SyncDirection.Id == Sync.Direction.Bidirectional.Id)
                     Forms.Main.Instance.Console.Update("Syncing " + Sync.Direction.GoogleToOutlook.Name, Console.Markup.syncDirection, newLine: false);
 
                 List<GcalData.Event> outlookEntriesToBeCreated = new List<GcalData.Event>(googleEntries);
-                List<Microsoft.Graph.Event> outlookEntriesToBeDeleted = new List<Microsoft.Graph.Event>(outlookEntries);
-                Dictionary<Microsoft.Graph.Event, GcalData.Event> entriesToBeCompared = new Dictionary<Microsoft.Graph.Event, GcalData.Event>();
+                List<MsGraph.Models.Event> outlookEntriesToBeDeleted = new List<MsGraph.Models.Event>(outlookEntries);
+                Dictionary<MsGraph.Models.Event, GcalData.Event> entriesToBeCompared = new Dictionary<MsGraph.Models.Event, GcalData.Event>();
 
                 Console console = Forms.Main.Instance.Console;
 
@@ -348,30 +349,17 @@ namespace OutlookGoogleCalendarSync.Sync {
                 } finally {
                     bubbleText += "Outlook: " + outlookEntriesToBeCreated.Count + " created; " +
                         outlookEntriesToBeDeleted.Count + " deleted; " + entriesUpdated + " updated";
-
-                    /*while (outlookEntriesToBeCreated.Count() > 0) {
-                        Outlook.Calendar.ReleaseObject(outlookEntriesToBeCreated.Last());
-                        outlookEntriesToBeCreated.Remove(outlookEntriesToBeCreated.Last());
-                    }
-                    while (outlookEntriesToBeDeleted.Count() > 0) {
-                        Outlook.Calendar.ReleaseObject(outlookEntriesToBeDeleted.Last());
-                        outlookEntriesToBeDeleted.Remove(outlookEntriesToBeDeleted.Last());
-                    }
-                    while (entriesToBeCompared.Count() > 0) {
-                        Outlook.Calendar.ReleaseObject(entriesToBeCompared.Keys.Last());
-                        entriesToBeCompared.Remove(entriesToBeCompared.Keys.Last());
-                    }*/
                 }
                 return true;
             }
 
-            private SyncResult extirpateCustomProperties(List<Microsoft.Graph.Event> outlookEntries, List<GcalData.Event> googleEntries) {
+            private SyncResult extirpateCustomProperties(List<MsGraph.Models.Event> outlookEntries, List<GcalData.Event> googleEntries) {
                 SyncResult returnVal = SyncResult.Fail;
                 Console console = Forms.Main.Instance.Console;
                 try {
                     console.Update("Cleansing OGCS metadata from Outlook items...", Console.Markup.h2, newLine: false);
                     for (int o = 0; o < outlookEntries.Count; o++) {
-                        Microsoft.Graph.Event ai = outlookEntries[o];
+                        MsGraph.Models.Event ai = outlookEntries[o];
                         Outlook.Graph.CustomProperty.LogProperties(ai, log4net.Core.Level.Debug);
                         if (Outlook.Graph.CustomProperty.Extirpate(ref ai)) {
                             console.Update(Outlook.Graph.Calendar.GetEventSummary(ai, out String anonSummary), anonSummary, Console.Markup.calendar);

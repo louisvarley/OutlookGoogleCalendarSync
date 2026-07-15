@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>OutlookGoogleCalendarSync</id>
-    <version>3.0.1-alpha</version>
+    <version>3.0.3-alpha</version>
     <title>Outlook Google Calendar Sync</title>
     <authors>Paul Woolcock</authors>
     <owners>phw198</owners>
@@ -12,37 +12,32 @@
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>Sync Outlook and Google calendars.</description>
     <releaseNotes>
-### &lt;i class="em em-loudspeaker"&gt;&lt;/i&gt; Major new release: supports Outlook Online!
+### &lt;i class="em em-loudspeaker"&gt;&lt;/i&gt; Major new release: v3 supports Outlook Online!
 
-* v3 no longer requires an Outlook client (either _Classic_ or _New_ editions)
+* v3 no longer requires an Outlook client (either _Classic_ or _New_ editions).
+    * v3 can still sync with the Classic Outlook client.
 * New features will only appear in v3, though you may choose to remain on v2.
 * v2 of OGCS has entered [corrective maintenance](https://www.outlookgooglecalendarsync.com/blog/2026/02/22/v2-into-corrective-maintenance.html) mode.
 
-# What's New In v3.0.1?
+# What's New In v3.0.3?
 
 &lt;i class="em em-high_brightness"&gt;&lt;/i&gt; **Enhancements**  
 
 - Application
-    - No Outlook client required!
-    - Display any news on start up
-    - Better presentation on 4k high resolution displays [[#2245](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2245)]
-- Sync Engine
-    - Don't delete newly created Outlook items during 2-way sync  [[#2268](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2268)]
-    - Don't sync attendee changes to Google mastered Event organised by another [[#2264](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2264)]
-    - Improvements for 2-way overrides (privacy, availability, colours) [[#2003](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2003)]
+    - Option added to manually sync _all_ Profiles [[#1427](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1427)]
+    - Modern Toast notifications for Windows 10 [[#1870](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1870)]
+    - Removed obsolete Google Goals feature
+    - Improved upgrade detection, handling both v2 and v3 installations
 
 &lt;i class="em em-beetle"&gt;&lt;/i&gt; **Bugfix**  
 
 - Application
-    - Prevent making installed application portable, when importing settings.
-    - Stop upgrade notifications when the same as running version [[#2276](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2276)]
-    - Fix failed updates, when current install 'corrupted' [[#2272](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2272)]
-
+    - Notifications within Windows Action Center function properly [[#1870](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1870)]
 - Sync Engine
-    - Handle no valid RRULE in recurring Google series. [[#2284](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2284)]
-    - Fix incorrect syncing when copying an Outlook appointment [[#2091](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2091)]
-    - Fatal crash for scheduled sync when no system tray OGCS icon. [[#2270](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2270)]
-    - Stop Outlook breaking encoded HTML in Google descriptions. [[#2269](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2269)]
+    - Fixed OutlookGeoCoordinates deserialization (String vs Number) [[#2334](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2334)]
+    - Time zone with ID `tzone://Microsoft/Custom` not found in source [[#2148](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2148)]
+        - New permission required to read time zone from mailbox settings
+    - Could not map IANA timezone '' to UTC offset [[#2298](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2298)]
     </releaseNotes>
     <copyright>Copyright 2026</copyright>
     <tags>Outlook Google Calendar Sync 2-way Two-way Bidirection</tags>

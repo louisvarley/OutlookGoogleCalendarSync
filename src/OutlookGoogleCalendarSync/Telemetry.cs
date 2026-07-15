@@ -178,6 +178,7 @@ namespace OutlookGoogleCalendarSync {
                 user_properties.Add("country_code", new Dictionary<String, String> { { "value", Telemetry.Instance.CountryCode } });
                 user_properties.Add("region", new Dictionary<String, String> { { "value", Telemetry.Instance.Region } });
                 user_properties.Add("city", new Dictionary<String, String> { { "value", Telemetry.Instance.City } });
+                user_properties.Add("windows_version", new Dictionary<String, String> { { "value", Program.WindowsVersion.ToString() } });
             }
 
             /// <summary>
@@ -354,7 +355,7 @@ namespace OutlookGoogleCalendarSync {
                 } catch (System.Exception ex) {
                     if (ex is WebException) {
                         WebException webex = ex as WebException;
-                        if (new HttpStatusCode[] { HttpStatusCode.Forbidden, HttpStatusCode.InternalServerError }.Contains(((HttpWebResponse)webex.Response).StatusCode)) {
+                        if (new HttpStatusCode?[] { HttpStatusCode.Forbidden, HttpStatusCode.InternalServerError, null }.Contains(((HttpWebResponse)webex.Response)?.StatusCode)) {
                             ex.LogAsFail();
                         } else {
                             if (!string.IsNullOrEmpty(payload)) log.Debug("payload: " + payload);

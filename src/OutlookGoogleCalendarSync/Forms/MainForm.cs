@@ -9,6 +9,8 @@ using System.Text;
 using System.Windows.Forms;
 
 namespace OutlookGoogleCalendarSync.Forms {
+
+    [System.ComponentModel.DesignerCategory("Form")]
     /// <summary>
     /// Description of MainForm.
     /// </summary>
@@ -197,6 +199,10 @@ namespace OutlookGoogleCalendarSync.Forms {
             #endregion
 
             #region Sync
+            if (Settings.Instance.Calendars.Count > 1) {
+                msSyncActions.Items.Add(new ToolStripSeparator());
+                msSyncActions.Items.Add(miSyncAllProfiles);
+            }
             if (ActiveCalendarProfile.ExtirpateOgcsMetadata) {
                 bSyncNow.FlatStyle = FlatStyle.Flat;
                 bSyncNow.BackColor = System.Drawing.Color.PaleVioletRed;
@@ -338,6 +344,11 @@ namespace OutlookGoogleCalendarSync.Forms {
                             }
                             rbOutlookSharedCal.Checked = true;
                         } else if (profile.OutlookService == Ogcs.Outlook.Calendar.Service.DefaultMailbox) {
+                            if (rbOutlookDefaultMB.Checked) {
+                                rbOutlookDefaultMB.CheckedChanged -= new System.EventHandler(this.rbOutlookDefaultMB_CheckedChanged);
+                                rbOutlookDefaultMB.Checked = false;
+                                rbOutlookDefaultMB.CheckedChanged += new System.EventHandler(this.rbOutlookDefaultMB_CheckedChanged);
+                            }
                             rbOutlookDefaultMB.Checked = true;
                             rbOutlookOnline.Checked = false;
                             if (!this.Visible) rbOutlookOnline_CheckedChanged(null, null);
@@ -458,8 +469,6 @@ namespace OutlookGoogleCalendarSync.Forms {
                     Ogcs.Google.Calendar.BuildOfflineColourPicker(clbColours);
                     cbDeleteWhenColourExcl.Checked = profile.DeleteWhenColourExcluded;
                     cbExcludeDeclinedInvites.Checked = profile.ExcludeDeclinedInvites;
-                    cbExcludeGoals.Checked = profile.ExcludeGoals;
-                    cbExcludeGoals.Enabled = Ogcs.Google.Calendar.IsDefaultCalendar() ?? true;
                     cbAddGMeet.Checked = profile.AddGMeet;
 
                     if (Settings.Instance.UsingPersonalAPIkeys()) {
@@ -497,10 +506,12 @@ namespace OutlookGoogleCalendarSync.Forms {
                     cbOfuscate.Checked = profile.Obfuscation.Enabled;
                     howObfuscatePanel.Visible = false;
 
+                    tbTargetCalendar.SelectedItemChanged -= new System.EventHandler(this.tbTargetCalendar_SelectedItemChanged);
                     tbCreatedItemsOnly.SelectedIndex = profile.CreatedItemsOnly ? 1 : 0;
                     if (profile.TargetCalendar.Id == Sync.Direction.OutlookToGoogle.Id) tbTargetCalendar.SelectedIndex = 0;
                     if (profile.TargetCalendar.Id == Sync.Direction.GoogleToOutlook.Id) tbTargetCalendar.SelectedIndex = 1;
                     tbCreatedItemsOnly_SelectedItemChanged(null, null);
+                    tbTargetCalendar.SelectedItemChanged += new System.EventHandler(this.tbTargetCalendar_SelectedItemChanged);
                     tbTargetCalendar_SelectedItemChanged(null, null);
 
                     cbPrivate.Checked = profile.SetEntriesPrivate;
@@ -534,13 +545,11 @@ namespace OutlookGoogleCalendarSync.Forms {
                         ddOutlookColour.SelectedIndex = 0;
 
                     ddOutlookColour.SelectedIndexChanged += ddOutlookColour_SelectedIndexChanged;
-                    ddOutlookColour.Enabled = cbColour.Checked;
-
+                    
                     ddGoogleColour.SelectedIndexChanged -= ddGoogleColour_SelectedIndexChanged;
                     offlineAddGoogleColour();
                     ddGoogleColour.SelectedIndexChanged += ddGoogleColour_SelectedIndexChanged;
-                    ddGoogleColour.Enabled = cbColour.Checked;
-
+                    
                     //Obfuscate Direction dropdown
                     for (int i = 0; i < cbObfuscateDirection.Items.Count; i++) {
                         Sync.Direction sd = (cbObfuscateDirection.Items[i] as Sync.Direction);
@@ -556,9 +565,9 @@ namespace OutlookGoogleCalendarSync.Forms {
                     #endregion
                     #region When
                     this.gbSyncOptions_When.SuspendLayout();
+                    setMaxSyncRange();
                     tbDaysInThePast.Text = profile.DaysInThePast.ToString();
                     tbDaysInTheFuture.Text = profile.DaysInTheFuture.ToString();
-                    setMaxSyncRange();
                     tbInterval.ValueChanged -= new System.EventHandler(this.tbMinuteOffsets_ValueChanged);
                     tbInterval.Value = profile.SyncInterval;
                     tbInterval.ValueChanged += new System.EventHandler(this.tbMinuteOffsets_ValueChanged);
@@ -738,7 +747,7 @@ namespace OutlookGoogleCalendarSync.Forms {
             try {
                 Sync.Engine.Instance.Sync_Requested(sender, e);
             } catch (System.AggregateException ex) {
-                ex.AnalyseAggregate(false);
+                ex.Analyse(false);
             } catch (System.ApplicationException ex) {
                 if (ex.Message.ToLower().Contains("try again") && sender != null) {
                     Sync_Click(null, null);
@@ -759,6 +768,9 @@ namespace OutlookGoogleCalendarSync.Forms {
         }
         private void miSyncFull_Click(object sender, EventArgs e) {
             this.bSyncNow.Text = "Start Full Sync";
+        }
+        private void miSyncAllProfiles_Click(object sender, EventArgs e) {
+            this.bSyncNow.Text = miSyncAllProfiles.Text;
         }
 
         public enum SyncNotes {
@@ -1237,6 +1249,17 @@ namespace OutlookGoogleCalendarSync.Forms {
         private void miAddProfile_Click(object sender, EventArgs e) {
             btProfileAction.Text = miAddProfile.Text;
             new Forms.ProfileManage("Add", ddProfile).ShowDialog();
+            try {
+                ToolStripItem lastItem = msSyncActions.Items[msSyncActions.Items.Count - 1];
+                if (Settings.Instance.Calendars.Count > 1) {
+                    if (lastItem.Text != miSyncAllProfiles.Text) {
+                        msSyncActions.Items.Add(new ToolStripSeparator());
+                        msSyncActions.Items.Add(miSyncAllProfiles);
+                    }
+                }
+            } catch (System.Exception ex) {
+                ex.Analyse("Unable to add 'Sync All Profiles' button menu item.");
+            }
         }
         private void miDeleteProfile_Click(object sender, EventArgs e) {
             btProfileAction.Text = miDeleteProfile.Text;
@@ -1266,6 +1289,22 @@ namespace OutlookGoogleCalendarSync.Forms {
             } catch (System.Exception ex) {
                 ex.Analyse("Failed to delete profile '" + profileName + "'.");
                 throw;
+            }
+
+            //Remove "Sync All Profiles" menu option?
+            try {
+                if (Settings.Instance.Calendars.Count == 1) {
+                    ToolStripItem lastItem = msSyncActions.Items[msSyncActions.Items.Count - 1];
+                    if (lastItem.Text == miSyncAllProfiles.Text) {
+                        msSyncActions.Items.Remove(lastItem);
+                        lastItem = msSyncActions.Items[msSyncActions.Items.Count - 1];
+                        if (lastItem is ToolStripSeparator)
+                            msSyncActions.Items.Remove(lastItem);
+                        miSyncDelta_Click(null, null);
+                    }
+                }
+            } catch (System.Exception ex) {
+                ex.Analyse("Unable to remove 'Sync All Profiles' button menu item.");
             }
         }
         private void miRenameProfile_Click(object sender, EventArgs e) {
@@ -1386,7 +1425,7 @@ namespace OutlookGoogleCalendarSync.Forms {
             }
         }
 
-        private void bGetOutlookCalendars_Click(object sender, EventArgs e) {
+        private async void bGetOutlookCalendars_Click(object sender, EventArgs e) {
             if (bGetOutlookCalendars.Text == "Cancel retrieval") {
                 log.Warn("User cancelled retrieval of Outlook calendars.");
                 Outlook.Graph.Calendar.Instance.Authenticator.CancelTokenSource.Cancel();
@@ -1396,7 +1435,7 @@ namespace OutlookGoogleCalendarSync.Forms {
             log.Debug("Retrieving Outlook calendar list.");
             this.bGetOutlookCalendars.Text = "Cancel retrieval";
             try {
-                Ogcs.Outlook.Graph.Calendar.Instance.GetCalendars();
+                await Ogcs.Outlook.Graph.Calendar.Instance.GetCalendars();
             } catch (OperationCanceledException) {
             } catch (System.Exception ex) {
                 ex.Analyse();
@@ -1404,20 +1443,14 @@ namespace OutlookGoogleCalendarSync.Forms {
                     "Please check the output on the Sync tab for more details.", "Outlook calendar retrieval failed",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 StringBuilder sb = new StringBuilder();
-                console.BuildOutput("Unable to get the list of Outlook calendars. The following error occurred:", ref sb, false);
-                console.BuildOutput(ex.FriendlyMessage(), ref sb, false);
-                if (ex is Microsoft.Graph.ServiceException ||
-                    ex is ApplicationException && ex.InnerException != null && ex.InnerException is Microsoft.Graph.ServiceException) {
-                    console.Update(sb, Console.Markup.fail, logit: true);
-                } else {
-                    console.Update(sb, Console.Markup.error, logit: true);
-                    if (Settings.Instance.Proxy.Type == "IE") {
-                        if (Ogcs.Extensions.MessageBox.Show("Please ensure you can access the internet with Internet Explorer.\r\n" +
-                            "Test it now? If successful, please retry retrieving your Outlook calendars.",
-                            "Test IE Internet Access",
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) {
-                            System.Diagnostics.Process.Start("iexplore.exe", "http://www.google.com");
-                        }
+                console.BuildOutput("Unable to get the list of Outlook calendars. The following error occurred: "+ ex.FriendlyMessage(), ref sb, false);
+                console.Update(sb, Console.Markup.error, logit: true);
+                if (Settings.Instance.Proxy.Type == "IE") {
+                    if (Ogcs.Extensions.MessageBox.Show("Please ensure you can access the internet with Internet Explorer.\r\n" +
+                        "Test it now? If successful, please retry retrieving your Outlook calendars.",
+                        "Test IE Internet Access",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes) {
+                        System.Diagnostics.Process.Start("iexplore.exe", "http://www.google.com");
                     }
                 }
             }
@@ -1626,7 +1659,7 @@ namespace OutlookGoogleCalendarSync.Forms {
 
         public void cbOutlookCalendar_SelectedIndexChanged(object sender, EventArgs e) {
             KeyValuePair<String, OutlookCalendarListEntry>? calendar = null;
-            if (cbOutlookCalendars.SelectedItem != null)
+            if (!string.IsNullOrEmpty(cbOutlookCalendars?.SelectedItem?.ToString()))
                 calendar = (KeyValuePair<String, OutlookCalendarListEntry>)cbOutlookCalendars.SelectedItem;
             ActiveCalendarProfile.UseOutlookCalendar = calendar?.Value;
 
@@ -1771,7 +1804,7 @@ namespace OutlookGoogleCalendarSync.Forms {
                 Ogcs.Google.Calendar.Instance.GetCalendars();
                 successfulRetrieval = true;
             } catch (AggregateException agex) {
-                agex.AnalyseAggregate(false);
+                agex.Analyse(false);
             } catch (global::Google.Apis.Auth.OAuth2.Responses.TokenResponseException ex) {
                 ex.AnalyseTokenResponse(false);
             } catch (OperationCanceledException) {
@@ -1838,7 +1871,6 @@ namespace OutlookGoogleCalendarSync.Forms {
                 this.cbGoogleCalendars.SelectedIndexChanged += cbGoogleCalendars_SelectedIndexChanged;
             }
             ActiveCalendarProfile.UseGoogleCalendar = (GoogleCalendarListEntry)cbGoogleCalendars.SelectedItem;
-            cbExcludeGoals.Enabled = Ogcs.Google.Calendar.IsDefaultCalendar() ?? true;
             if (sender != null) {
                 log.Warn("Google calendar selection changed to: " + (ActiveCalendarProfile.UseGoogleCalendar?.ToString(true) ?? "<None>"));
                 ddGoogleColour.Rebuild(true);
@@ -1963,9 +1995,6 @@ namespace OutlookGoogleCalendarSync.Forms {
         private void cbExcludeDeclinedInvites_CheckedChanged(object sender, EventArgs e) {
             ActiveCalendarProfile.ExcludeDeclinedInvites = cbExcludeDeclinedInvites.Checked;
         }
-        private void cbExcludeGoals_CheckedChanged(object sender, EventArgs e) {
-            ActiveCalendarProfile.ExcludeGoals = cbExcludeGoals.Checked;
-        }
         private void cbGMeet_CheckedChanged(object sender, EventArgs e) {
             if (!this.LoadingProfileConfig && !cbAddDescription.Checked) {
                 cbAddGMeet.Checked = false;
@@ -2064,6 +2093,7 @@ namespace OutlookGoogleCalendarSync.Forms {
                 lDNDand.Visible = false;
                 ddGoogleColour.Visible = false;
                 ddOutlookColour.Visible = true;
+                ddOutlookColour.Enabled = cbColour.Checked;
                 cbSingleCategoryOnly.Visible = true;
                 cbExcludeTentative.Visible = false;
             }
@@ -2075,6 +2105,7 @@ namespace OutlookGoogleCalendarSync.Forms {
                 dtDNDend.Visible = true;
                 lDNDand.Visible = true;
                 ddGoogleColour.Visible = true;
+                ddGoogleColour.Enabled = cbColour.Checked;
                 ddOutlookColour.Visible = false;
                 cbSingleCategoryOnly.Visible = false;
                 cbExcludeTentative.Visible = true;
@@ -2156,19 +2187,19 @@ namespace OutlookGoogleCalendarSync.Forms {
         }
 
         private void tbTargetCalendar_SelectedItemChanged(object sender, EventArgs e) {
-            if (this.LoadingProfileConfig) return;
-
             switch (tbTargetCalendar.Text) {
                 case "Google calendar": {
                         ActiveCalendarProfile.TargetCalendar = Sync.Direction.OutlookToGoogle;
-                        this.ddGoogleColour.Visible = true;
                         this.ddOutlookColour.Visible = false;
+                        this.ddGoogleColour.Visible = true;
+                        this.ddGoogleColour.Enabled = cbColour.Checked;
                         break;
                     }
                 case "Outlook calendar": {
                         ActiveCalendarProfile.TargetCalendar = Sync.Direction.GoogleToOutlook;
                         this.ddGoogleColour.Visible = false;
                         this.ddOutlookColour.Visible = true;
+                        this.ddOutlookColour.Enabled = cbColour.Checked;
                         if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
                             this.cbColour.Checked = false;
                         break;
@@ -2177,6 +2208,7 @@ namespace OutlookGoogleCalendarSync.Forms {
                         ActiveCalendarProfile.TargetCalendar = Sync.Direction.Bidirectional;
                         this.ddGoogleColour.Visible = false;
                         this.ddOutlookColour.Visible = true;
+                        this.ddOutlookColour.Enabled = cbColour.Checked;
                         if (Outlook.Factory.OutlookVersionName == Outlook.Factory.OutlookVersionNames.Outlook2003)
                             this.cbColour.Checked = false;
                         break;

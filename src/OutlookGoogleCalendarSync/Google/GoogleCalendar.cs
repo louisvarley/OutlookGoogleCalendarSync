@@ -541,17 +541,6 @@ namespace OutlookGoogleCalendarSync.Google {
                 }
             }
 
-            //Goals
-            if ((IsDefaultCalendar() ?? true) && profile.ExcludeGoals) {
-                goals = result.Where(ev =>
-                    !string.IsNullOrEmpty(ev.Description) && ev.Description.Contains("This event was added from Goals in Google Calendar.") &&
-                    ev.Organizer != null && ev.Organizer.Email == "unknownorganizer@calendar.google.com" && ev.Organizer.DisplayName == "Google Calendar").ToList();
-                if (goals.Count > 0) {
-                    log.Debug(goals.Count + " Google Events are Goals and will be excluded.");
-                    result = result.Except(goals).ToList();
-                }
-            }
-
             List<Event> allExcluded = colour.Concat(availability).Concat(allDays).Concat(privacy).Concat(subject).Concat(declined).Concat(goals).ToList();
             foreach (Event ev in allExcluded) {
                 if (!ExcludedByConfig.Contains(ev.Id))
@@ -2034,10 +2023,15 @@ namespace OutlookGoogleCalendarSync.Google {
             if (!profile.AddColours && !profile.SetEntriesColour) return EventColour.Palette.NullPalette;
 
             OlCategoryColor? categoryColour = null;
-            EventColour.Palette overrideColour = this.ColourPalette.ActivePalette[Convert.ToInt16(profile.SetEntriesColourGoogleId)];
-
+            EventColour.Palette overrideColour = gColour ?? EventColour.Palette.NullPalette;
+                
             Boolean checkOverrideManuallyAltered = false;
             if (profile.SetEntriesColour) {
+                if (profile.TargetCalendar.Id == Sync.Direction.Bidirectional.Id)
+                    overrideColour = this.GetColour(profile.SetEntriesColourName);
+                else
+                    overrideColour = this.ColourPalette.ActivePalette[Convert.ToInt16(profile.SetEntriesColourGoogleId)];
+
                 if (profile.TargetCalendar.Id == Sync.Direction.GoogleToOutlook.Id) { //Colour forced to sync in other direction
                     if (gColour == null) //Creating item
                         return EventColour.Palette.NullPalette;
@@ -2158,20 +2152,20 @@ namespace OutlookGoogleCalendarSync.Google {
             try {
                 if (ev.RecurringEventId != null && ev.Status == "cancelled" && ev.OriginalStartTime != null) {
                     signature += (ev.Summary ?? "[cancelled]");
-                    signature += ";" + ev.OriginalStartTime.SafeDateTimeOffset().ToPreciseString();
+                    signature += ";" + ev.OriginalStartTime.SafeDateTimeOffset().ToPreciseUtcString();
                 } else {
                     signature += ev.Summary;
-                    signature += ";" + ev.Start.SafeDateTimeOffset().ToPreciseString() + ";";
+                    signature += ";" + ev.Start.SafeDateTimeOffset().ToPreciseUtcString() + ";";
                     if (!(ev.EndTimeUnspecified != null && (Boolean)ev.EndTimeUnspecified)) {
-                        signature += ev.End.SafeDateTimeOffset().ToPreciseString();
+                        signature += ev.End.SafeDateTimeOffset().ToPreciseUtcString();
                     }
                 }
             } catch {
                 log.Warn("Failed to create signature: " + signature);
                 log.Warn("This Event cannot be synced.");
                 try { log.Warn("  ev.Summary: " + ev.Summary); } catch { }
-                try { log.Warn("  ev.Start: " + (ev.Start == null ? "null!" : ev.Start.SafeDateTimeOffset().ToPreciseString())); } catch { }
-                try { log.Warn("  ev.End: " + (ev.End == null ? "null!" : ev.End.SafeDateTimeOffset().ToPreciseString())); } catch { }
+                try { log.Warn("  ev.Start: " + (ev.Start == null ? "null!" : ev.Start.SafeDateTimeOffset().ToPreciseUtcString())); } catch { }
+                try { log.Warn("  ev.End: " + (ev.End == null ? "null!" : ev.End.SafeDateTimeOffset().ToPreciseUtcString())); } catch { }
                 try { log.Warn("  ev.Status: " + ev.Status ?? "null!"); } catch { }
                 try { log.Warn("  ev.RecurringEventId: " + ev.RecurringEventId ?? "null"); } catch { }
                 return "";
@@ -2250,8 +2244,8 @@ namespace OutlookGoogleCalendarSync.Google {
         private static String exportToCSV(Event ev) {
             System.Text.StringBuilder csv = new System.Text.StringBuilder();
 
-            csv.Append(ev.Start == null ? "null" : (ev.Start.SafeDateTimeOffset().ToPreciseString()) + ",");
-            csv.Append(ev.End == null ? "null" : (ev.End.SafeDateTimeOffset().ToPreciseString()) + ",");
+            csv.Append(ev.Start == null ? "null" : (ev.Start.SafeDateTimeOffset().ToPreciseUtcString()) + ",");
+            csv.Append(ev.End == null ? "null" : (ev.End.SafeDateTimeOffset().ToPreciseUtcString()) + ",");
             csv.Append("\"" + ev.Summary + "\",");
 
             if (ev.Location == null) csv.Append(",");

@@ -5,6 +5,8 @@ using System.Drawing;
 using System.Windows.Forms;
 
 namespace OutlookGoogleCalendarSync.Forms {
+
+    [System.ComponentModel.DesignerCategory("Form")]
     public partial class UpdateInfo : Form {
         private static readonly ILog log = LogManager.GetLogger(typeof(UpdateInfo));
 
@@ -20,6 +22,9 @@ namespace OutlookGoogleCalendarSync.Forms {
             body {
                 font-family: Arial;
                 font-size: 14px;
+            }
+            code {
+                background-color: #e3e3e3;
             }
         </style>
     </head>
@@ -56,8 +61,7 @@ namespace OutlookGoogleCalendarSync.Forms {
                 dr = ShowDialog();
 
             } catch (System.Exception ex) {
-                log.Debug("A problem was encountered showing the release notes.");
-                Ogcs.Exception.Analyse(ex);
+                ex.Analyse("A problem was encountered showing the release notes.");
                 dr = Ogcs.Extensions.MessageBox.Show("A new " + (releaseType == "alpha" ? "alpha " : "") + "release of OGCS is available.\nWould you like to upgrade to v" +
                                releaseVersion + " now?", "OGCS Update Available", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
             } finally {

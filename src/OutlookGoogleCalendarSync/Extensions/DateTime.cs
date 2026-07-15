@@ -60,10 +60,15 @@ namespace OutlookGoogleCalendarSync.Extensions {
         }
 
         public override bool Equals(Object obj) {
-            if (obj is OgcsDateTimeOffset)
-                return this.baseDateTime == (obj as OgcsDateTimeOffset).baseDateTime;
-            else
-                return false;
+            if (obj is OgcsDateTimeOffset objDTO) {
+                if (this.dateOnly == objDTO.dateOnly) {
+                    if (this.dateOnly)
+                        return this.baseDateTime.Date == objDTO.baseDateTime.Date;
+                    else
+                        return this.baseDateTime == (obj as OgcsDateTimeOffset).baseDateTime;
+                }
+            }
+            return false;
         }
 
         public override int GetHashCode() {
@@ -73,29 +78,46 @@ namespace OutlookGoogleCalendarSync.Extensions {
 
 
     public static class DateTime {
-        /// <summary>This used to be the string format Google held date-times, eg "2012-08-20T00:00:00+02:00"</summary>
-        private static String preciseString = "yyyy-MM-ddTHH:mm:ssZ";
+        private const String preciseLocalString = "yyyy-MM-ddTHH:mm:ss";
+        private const String preciseUtcString = "yyyy-MM-ddTHH:mm:ssZ";
+        private const String preciseOffsetString = "yyyy-MM-ddTHH:mm:ssK"; //eg "2012-08-20T00:00:00+02:00"
 
         /// <summary>
         /// Returns the DateTimeOffset, if parsable.
         /// </summary>
         /// <param name="dt">Date-time string value</param>
         /// <returns>Parsed DateTimeOffset</returns>
-        public static DateTimeOffset GetPreciseDate(this String dt) {
+        public static DateTimeOffset GetPreciseUtcDate(this String dt) {
             DateTimeOffset retVal;
-            if (!DateTimeOffset.TryParseExact(dt, preciseString, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out retVal)) {
-                throw new FormatException($"DateTime string value of '{dt}' was not of the expected format {preciseString}.");
+            if (!DateTimeOffset.TryParseExact(dt, preciseUtcString, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out retVal)) {
+                throw new FormatException($"DateTime string value of '{dt}' was not of the expected format {preciseUtcString}.");
             }
             return retVal;
         }
 
         /// <summary>
-        /// Returns the DateTime with time and GMT offset.
+        /// Returns the DateTime with time as UTC absolute.
         /// </summary>
         /// <param name="dt">Date-time offset value</param>
-        /// <returns>Formatted string</returns>
-        public static String ToPreciseString(this System.DateTimeOffset dt) {
-            return dt.ToUniversalTime().ToString(preciseString, CultureInfo.InvariantCulture);
+        /// <returns>Formatted string "yyyy-MM-ddTHH:mm:ssZ"</returns>
+        public static String ToPreciseUtcString(this System.DateTimeOffset dt) {
+            return dt.ToUniversalTime().ToString(preciseUtcString, CultureInfo.InvariantCulture);
+        }
+        /// <summary>
+        /// Returns the DateTime with time as GMT offset.
+        /// </summary>
+        /// <param name="dt">Date-time offset value</param>
+        /// <returns>Formatted string "yyyy-MM-ddTHH:mm:ssK"</returns>
+        public static String ToPreciseOffsetString(this System.DateTimeOffset dt) {
+            return dt.ToUniversalTime().ToString(preciseOffsetString, CultureInfo.InvariantCulture);
+        }
+        /// <summary>
+        /// Returns the DateTime as local time with no offset detail.
+        /// </summary>
+        /// <param name="dt">Date-time offset value</param>
+        /// <returns>Formatted string "yyyy-MM-ddTHH:mm:ss"</returns>
+        public static String ToPreciseLocalString(this System.DateTimeOffset dt) {
+            return dt.ToString(preciseLocalString, CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -112,15 +134,20 @@ namespace OutlookGoogleCalendarSync.Extensions {
         /// </summary>
         /// <returns>DateTimeOffset</returns>
         public static System.DateTimeOffset SafeDateTimeOffset(this EventDateTime evDt) {
-            return evDt.DateTimeDateTimeOffset?.ToLocalTime() ?? System.DateTimeOffset.ParseExact(evDt.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+            if (evDt.DateTimeDateTimeOffset == null)
+                return System.DateTimeOffset.ParseExact(evDt.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+
+            Int16 offset = TimezoneDB.GetUtcOffset(evDt.TimeZone);
+            System.DateTimeOffset retDto = (DateTimeOffset)evDt.DateTimeDateTimeOffset;
+            return retDto.ToOffset(TimeSpan.FromMinutes(offset));
         }
 
         /// <summary>
         /// Returns the DateTime for a Graph Date
         /// </summary>
         /// <returns>DateTime</returns>
-        public static System.DateTime SafeDateTime(this Microsoft.Graph.Date graphDate) {
-            return new System.DateTime(graphDate.Year, graphDate.Month, graphDate.Day);
+        public static System.DateTimeOffset SafeDateTimeOffset(this Microsoft.Kiota.Abstractions.Date graphDate) {
+            return new System.DateTime(graphDate.Year, graphDate.Month, graphDate.Day, 0, 0, 0, DateTimeKind.Utc);
         }
 
         /// <summary>
@@ -128,7 +155,7 @@ namespace OutlookGoogleCalendarSync.Extensions {
         /// </summary>
         /// <returns>Local DateTime</returns>
         [Obsolete("[deprecated, use SafeDateTimeOffset()]")]
-        public static System.DateTime SafeDateTime(this Microsoft.Graph.DateTimeTimeZone evDt) {
+        public static System.DateTime SafeDateTime(this Outlook.Graph.CustomClient.Models.DateTimeTimeZone evDt) {
             System.DateTime safeDate;
             if (evDt.TimeZone == "UTC") {
                 safeDate = System.DateTime.Parse(evDt.DateTime, null, DateTimeStyles.AssumeUniversal);
@@ -140,17 +167,15 @@ namespace OutlookGoogleCalendarSync.Extensions {
             }
             return safeDate;
         }
-        public static System.DateTimeOffset SafeDateTimeOffset(this Microsoft.Graph.DateTimeTimeZone evDt, Boolean? isAllDay = false) {
-            System.DateTimeOffset safeDate;
-            if (evDt.TimeZone == "UTC") {
-                safeDate = System.DateTime.Parse(evDt.DateTime, null, DateTimeStyles.AssumeUniversal);
-                if (isAllDay ?? false) {
-                    safeDate = System.DateTime.SpecifyKind(safeDate.ToUniversalTime().Date, DateTimeKind.Unspecified);
-                }
+        public static System.DateTimeOffset SafeDateTimeOffset(this Outlook.Graph.CustomClient.Models.DateTimeTimeZone evDt, Boolean? isAllDay, String timezone) {
+            System.DateTimeOffset safeDate = System.DateTime.Parse(evDt.DateTime, null, DateTimeStyles.AssumeUniversal);
+            if (isAllDay ?? false) {
+                safeDate = System.DateTime.SpecifyKind(safeDate.ToUniversalTime().Date, DateTimeKind.Utc);
             } else {
-                Int16 offset = TimezoneDB.GetUtcOffset(evDt.TimeZone);
-                safeDate = System.DateTime.Parse(evDt.DateTime).AddMinutes(-offset);
-                safeDate = System.DateTime.SpecifyKind(safeDate.DateTime, DateTimeKind.Utc);
+                //Make sure we have an IANA timezone; Graph can also hold a Windows timezone
+                timezone = TimezoneDB.IANAtimezone(timezone);
+                Int16 offset = TimezoneDB.GetUtcOffset(timezone);
+                safeDate = safeDate.ToOffset(TimeSpan.FromMinutes(offset));
             }
             return safeDate;
         }
@@ -159,8 +184,8 @@ namespace OutlookGoogleCalendarSync.Extensions {
         /// Converts a System.DateTime to a Graph.Date
         /// </summary>
         /// <returns>Graph.Date</returns>
-        public static Microsoft.Graph.Date ToGraphDate(this System.DateTime dt) {
-            return new Microsoft.Graph.Date(dt.Year, dt.Month, dt.Day);
+        public static Microsoft.Kiota.Abstractions.Date ToGraphDate(this System.DateTimeOffset dt) {
+            return new Microsoft.Kiota.Abstractions.Date(dt.Year, dt.Month, dt.Day);
         }
 
         /// <summary>
@@ -200,11 +225,12 @@ namespace OutlookGoogleCalendarSync.Extensions {
         /// <param name="ai">The Graph Event to check</param>
         /// <param name="logicallyEquivalent">Midnight to midnight Events treated as all day</param>
         /// <returns></returns>
-        public static Boolean AllDayEvent(this Microsoft.Graph.Event ai, Boolean logicallyEquivalent = false) {
-            if ((bool)ai.IsAllDay)
+        public static Boolean AllDayEvent(this Outlook.Graph.CustomClient.Models.Event ai, Boolean logicallyEquivalent = false) {
+            if (ai.IsAllDay ?? false)
                 return true;
             if (logicallyEquivalent)
-                return ai.Start.SafeDateTime().TimeOfDay == new TimeSpan(0, 0, 0) && ai.End.SafeDateTime().TimeOfDay == new TimeSpan(0, 0, 0);
+                return ai.Start.SafeDateTimeOffset(false, ai.OriginalStartTimeZone).TimeOfDay == new TimeSpan(0, 0, 0) && 
+                    ai.End.SafeDateTimeOffset(false, ai.OriginalEndTimeZone).TimeOfDay == new TimeSpan(0, 0, 0);
             else
                 return false;
         }

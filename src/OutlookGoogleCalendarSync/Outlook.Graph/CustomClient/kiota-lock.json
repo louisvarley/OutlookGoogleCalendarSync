@@ -1,0 +1,39 @@
+{
+  "descriptionHash": "FF39459A9F6DAD2AD039CFC9B94D2B3F6B13BA2DEE949232A5AEEE404B298E137C87D6E1AEEFF3FCFB4EBC41BE23E9F16570E026D0694C54D4A610CFAC1EC017",
+  "descriptionLocation": "../../scripts/openapi.yaml",
+  "lockFileVersion": "1.0.0",
+  "kiotaVersion": "1.17.0",
+  "clientClassName": "GraphServiceClient",
+  "clientNamespaceName": "OutlookGoogleCalendarSync.Outlook.Graph.CustomClient",
+  "language": "CSharp",
+  "usesBackingStore": true,
+  "excludeBackwardCompatible": true,
+  "includeAdditionalData": true,
+  "disableSSLValidation": false,
+  "serializers": [
+    "Microsoft.Kiota.Serialization.Json.JsonSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Text.TextSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Form.FormSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Multipart.MultipartSerializationWriterFactory"
+  ],
+  "deserializers": [
+    "Microsoft.Kiota.Serialization.Json.JsonParseNodeFactory",
+    "Microsoft.Kiota.Serialization.Text.TextParseNodeFactory",
+    "Microsoft.Kiota.Serialization.Form.FormParseNodeFactory"
+  ],
+  "structuredMimeTypes": [
+    "application/json",
+    "text/plain;q=0.9",
+    "application/x-www-form-urlencoded;q=0.2",
+    "multipart/form-data;q=0.1"
+  ],
+  "includePatterns": [
+    "/me/calendars",
+    "/me/calendars/**",
+    "/me/events",
+    "/me/events/**",
+    "/rootODataError"
+  ],
+  "excludePatterns": [],
+  "disabledValidationRules": []
+}

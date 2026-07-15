@@ -1,7 +1,51 @@
 | Release Notes |
 |:---|
 
+# v3.0.3.0 - Alpha
+
+**Enhancements**
+- Application
+    - Option added to manually sync _all_ Profiles [[#1427](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1427)]
+    - Modern Toast notifications for Windows 10 [[#1870](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1870)]
+    - Removed obsolete Google Goals feature
+    - Improved upgrade detection to handle both v2 and v3 installations
+
+**Bugfix**
+- Application
+    - Notifications within Windows Action Center function properly [[#1870](https://github.com/phw198/OutlookGoogleCalendarSync/issues/1870)]
+- Sync Engine
+    - Fixed OutlookGeoCoordinates deserialization (String vs Number) [[#2334](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2334)]
+    - Time zone with ID `tzone://Microsoft/Custom` not found in source [[#2148](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2148)]
+    - Could not map IANA timezone '' to UTC offset [[#2298](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2298)]
+
+# v3.0.2.0 - Alpha
+
+**Enhancements**
+- Application
+    - Updated to .NET Framework 4.7.2 (from 4.6.2)
+    - Updated all third-party library files (DLLs)
+
+**Bugfix**
+- Application
+    - Unable to add shared Outlook calendars [[#2286](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2286)]
+    - Fixed restriction of sync dates for personal API keys [[#2327](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2327)]
+    - Invisible colour/category dropdown for override config [[#2303](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2303)]
+- Sync Engine
+    - Logging Google exception without start date prevents sync [[#2321](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2321)]
+    - Fixed memory leak on Push Sync for remote shared calendars [[#2310](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2310)]
+    - Timezone offset incorrectly excluding and deleting recurring series [[#2290](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2290)]
+    - Timezone offset incorrectly deleting/duplicating items on boundary of sync window [[#2312](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2312)]
+    - Instances of recurring series incorrectly offset by an hour due to daylight saving [[2278](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2278)]
+    - Outlook Online: Resolve sporadic `ConcurrentItemSave` errors [[2293](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2293)]
+    - Two-way colour override for target calendar did not work [[2316](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2316)]
+
 # v3.0.1.0 - Alpha
+
+:loudspeaker: Major new release: supports Outlook Online!
+* v3 no longer requires an Outlook client (either _Classic_ or _New_ editions)
+    * v3 can still sync with the Classic Outlook client.
+* New features will only appear in v3, though you may choose to remain on v2.
+* v2 of OGCS has entered [corrective maintenance](https://www.outlookgooglecalendarsync.com/blog/2026/02/22/v2-into-corrective-maintenance.html) mode.
 
 **Enhancements**
 - Application
@@ -25,6 +69,25 @@
     - Stop Outlook breaking encoded HTML in Google descriptions. [[#2269](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2269)]
 
 ----
+
+# v2.12.2.0 - Alpha
+
+**Maintenance**
+- Application
+    - Updated all third-party library files (DLLs)
+
+**Bugfix**
+- Application
+    - Unable to add shared Outlook calendars [[#2286](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2286)]
+    - Fixed restriction of sync dates for personal API keys [[#2327](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2327)]
+    - Invisible colour/category dropdown for override config [[#2303](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2303)]
+	- Improvements on upgrade mechanism
+- Sync Engine
+    - Logging Google exception without start date prevents sync [[#2321](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2321)]
+    - Fixed memory leak on Push Sync for remote shared calendars [[#2310](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2310)]
+    - Timezone offset incorrectly excluding and deleting recurring series [[#2290](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2290)]
+    - Instances of recurring series incorrectly offset by an hour due to daylight saving [[#2278](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2278)]
+    - Two-way colour override for target calendar did not work [[#2316](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2316)]
 
 # v2.12.1.0 - Alpha
 
@@ -50,6 +113,8 @@
     - Fix faux HTML description "changes" [[#2269](https://github.com/phw198/OutlookGoogleCalendarSync/issues/2269)]
 
 # v2.12.0.0 - Beta
+
+:loudspeaker: v2 of OGCS is now entering [corrective maintenance](https://www.outlookgooglecalendarsync.com/blog/2026/02/22/v2-into-corrective-maintenance.html) mode.
 
 **Enhancements** rolled in from Alpha releases
 - Application

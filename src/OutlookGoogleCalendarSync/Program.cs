@@ -41,6 +41,10 @@ namespace OutlookGoogleCalendarSync {
         public static Boolean IsInstalled {
             get {
                 isInstalled ??= Updater.IsSquirrelInstall();
+                if ((bool)isInstalled && !Application.StartupPath.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))) {
+                    log.Info("An installation of OGCS exists, but this running instance is portable.");
+                    return false;
+                }
                 return (Boolean)isInstalled;
             }
         }
@@ -64,6 +68,7 @@ namespace OutlookGoogleCalendarSync {
                 parseArgumentsAndInitialise(args);
 
                 Updater.MakeSquirrelAware();
+                getWindowsBuildNumber();
                 Program.instancesRunning();
                 Forms.Splash.ShowMe();
 
@@ -603,7 +608,7 @@ namespace OutlookGoogleCalendarSync {
         /// <returns>The converted integer version number.</returns>
         public static Int32 VersionToInt(String semanticVersion) {
             String paddedVersion = "";
-            foreach (String versionBit in semanticVersion.Split('.')) {
+            foreach (String versionBit in semanticVersion?.Split('.')) {
                 paddedVersion += versionBit.PadLeft(2, '0');
             }
             return Convert.ToInt32(paddedVersion);
@@ -682,7 +687,15 @@ namespace OutlookGoogleCalendarSync {
 
                 if (processes.Count() > 1) {
                     log.Warn("There are " + processes.Count() + " " + currentProcess.ProcessName + " processes currently running.");
-                    List<System.Linq.IGrouping<string, System.Diagnostics.Process>> sameExe = processes.GroupBy(p => p.MainModule.FileName).Where(e => e.Count() > 1).ToList();
+                    List<System.Linq.IGrouping<string, System.Diagnostics.Process>> sameExe = new();
+                    try {
+                        sameExe = processes.GroupBy(p => p.MainModule.FileName).Where(e => e.Count() > 1).ToList();
+                    } catch (System.ComponentModel.Win32Exception ex) {
+                        if (currentProcess.ProcessName != "OutlookGoogleCalendarSync" && ex.Message.Contains("A 32 bit processes cannot access modules of a 64 bit process.")) {
+                            ex.LogAsFail().Analyse("Cannot interrogate other processes as they are a different architecture.");
+                            return;
+                        }
+                    }
                     log.Debug(sameExe.Count() + " executables have more than one process attached; checking runtime arguments");
                     log.Debug("Current process command line:-");
                     String currentCmdLine = getProcessCommandLine(currentProcess.Id);
@@ -719,6 +732,28 @@ namespace OutlookGoogleCalendarSync {
             log.Debug(" " + commandLine);
 
             return commandLine;
+        }
+
+        public static Version WindowsVersion { get; private set; }
+
+        private static void getWindowsBuildNumber() {
+            String regKeyOsVer = "";
+            Version osVersion = null;
+            try {
+                log.Info($"Windows Environment: {Environment.OSVersion.VersionString}");
+
+                using (Microsoft.Win32.RegistryKey registryKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion")) {
+                    regKeyOsVer = registryKey?.GetValue("CurrentMajorVersionNumber")?.ToString() ?? "0";
+                    regKeyOsVer += "." + registryKey?.GetValue("CurrentMinorVersionNumber")?.ToString() ?? "0";
+                    regKeyOsVer += "." + registryKey?.GetValue("CurrentBuildNumber")?.ToString() ?? "0";
+                    regKeyOsVer += "." + registryKey?.GetValue("UBR")?.ToString() ?? "x";
+                    osVersion = new(regKeyOsVer);
+                }
+            } catch (System.Exception ex) {
+                ex.Analyse("Unable to determine precise Windows build number. " + regKeyOsVer);
+            }
+            WindowsVersion = osVersion ?? Environment.OSVersion.Version;
+            log.Info($"Precise Build: {osVersion?.Major}.{osVersion?.Minor}.{osVersion?.Build}.{osVersion?.Revision}");
         }
 
         public static void Shutdown() {

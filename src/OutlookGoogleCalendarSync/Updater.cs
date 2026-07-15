@@ -1,5 +1,5 @@
-﻿using Ogcs = OutlookGoogleCalendarSync;
-using log4net;
+﻿using log4net;
+using Newtonsoft.Json.Linq;
 using Squirrel;
 using System;
 using System.ComponentModel;
@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Ogcs = OutlookGoogleCalendarSync;
 
 namespace OutlookGoogleCalendarSync {
     class Updater {
@@ -18,11 +19,11 @@ namespace OutlookGoogleCalendarSync {
             get { return bt != null; }
         }
         private Boolean isBusy = false;
-        public Boolean IsBusy { 
-            get { return isBusy; } 
+        public Boolean IsBusy {
+            get { return isBusy; }
         }
         private String restartUpdateExe = "";
-        private static String nonGitHubReleaseUri = null; //When testing, eg: @"\\127.0.0.1\Squirrel";
+        private const String nonGitHubReleaseUri = null; //When testing, eg: @"\\127.0.0.1\Squirrel";
 
         public Updater() { }
 
@@ -111,7 +112,7 @@ namespace OutlookGoogleCalendarSync {
                     Ogcs.Exception.Analyse(ex);
                 }
             }
-            
+
             log.Info("This " + (isSquirrelInstall ? "is" : "is not") + " a Squirrel install.");
             return isSquirrelInstall;
         }
@@ -123,13 +124,30 @@ namespace OutlookGoogleCalendarSync {
             Forms.UpdateInfo updateInfoFrm = null;
             UpdateInfo updates = null;
             isBusy = true;
+
+            //Adapt update mechanism if releasing both v2 and v3; out-the-box Squirrel gets confused
+            const Boolean maintainingV2 = true;
+
             try {
                 String installRootDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (string.IsNullOrEmpty(nonGitHubReleaseUri))
-                    updateManager = await Squirrel.UpdateManager.GitHubUpdateManager("https://github.com/phw198/OutlookGoogleCalendarSync", "OutlookGoogleCalendarSync", installRootDir,
-                        new Squirrel.FileDownloader(new Extensions.OgcsWebClient()), prerelease: Settings.Instance.AlphaReleases);
-                else
+                if (!string.IsNullOrEmpty(nonGitHubReleaseUri))
                     updateManager = new Squirrel.UpdateManager(nonGitHubReleaseUri, "OutlookGoogleCalendarSync", installRootDir);
+                else {
+                    if (maintainingV2 && Version.TryParse(Application.ProductVersion, out Version currentVersion)) {
+                        JObject targetRelease = parseGitHubRelease(currentVersion);
+                        if (targetRelease == null)
+                            return false;
+                        else {
+                            String targetReleaseTag = targetRelease["html_url"]?.ToString().Replace("/tag/", "/download/");
+                            log.Info($"Targeting release URL: {targetReleaseTag}");
+                            File.Delete(Path.Combine(installRootDir, "OutlookGoogleCalendarSync", "packages", "RELEASES"));
+                            updateManager = new Squirrel.UpdateManager(targetReleaseTag, "OutlookGoogleCalendarSync", installRootDir,
+                                new Squirrel.FileDownloader(new Extensions.OgcsWebClient()));
+                        }
+                    } else
+                        updateManager = await Squirrel.UpdateManager.GitHubUpdateManager("https://github.com/phw198/OutlookGoogleCalendarSync", "OutlookGoogleCalendarSync", installRootDir,
+                            new Squirrel.FileDownloader(new Extensions.OgcsWebClient()), prerelease: Settings.Instance.AlphaReleases);
+                }
 
                 try {
                     updates = await updateManager.CheckForUpdate();
@@ -192,20 +210,26 @@ namespace OutlookGoogleCalendarSync {
                             return false;
                         }
 
-                        String localFile = updates.PackageDirectory + "\\" + update.Filename;
-                        if (updateManager.CheckIfAlreadyDownloaded(update, localFile)) {
-                            log.Debug("This file has already been downloaded: "+ Program.MaskFilePath(localFile));
+                        String updateFilename = update.Filename;
+                        Boolean nupkgOverridden = false;
+                        if (nupkgOverridden = updates.CurrentlyInstalledVersion?.Version.Version.Major == 2 && update.Version.Version.Major == 3 && update.IsDelta) {
+                            log.Info("Forcing full download instead of delta " + update.Version);
+                            updateFilename = update.Filename.Replace("delta.nupkg", "full.nupkg");
+                        }
+                        String localFile = updates.PackageDirectory + "\\" + updateFilename;
+                        if (updateManager.CheckIfAlreadyDownloaded(update, localFile) || (nupkgOverridden && File.Exists(localFile))) {
+                            log.Debug("This file has already been downloaded: " + Program.MaskFilePath(localFile));
                         } else {
                             squirrelGaEv.AddParameter(GA4.Squirrel.state, "Upgrade downloading");
-                            squirrelGaEv.AddParameter(GA4.Squirrel.file, update.Filename);
+                            squirrelGaEv.AddParameter(GA4.Squirrel.file, updateFilename);
                             try {
                                 //"https://github.com/phw198/OutlookGoogleCalendarSync/releases/download/v2.8.6-alpha"
                                 if (string.IsNullOrEmpty(nonGitHubReleaseUri)) {
-                                    String nupkgUrl = "https://github.com/phw198/OutlookGoogleCalendarSync/releases/download/v" + update.Version + "/" + update.Filename;
+                                    String nupkgUrl = "https://github.com/phw198/OutlookGoogleCalendarSync/releases/download/v" + update.Version + "/" + updateFilename;
                                     log.Debug("Downloading " + nupkgUrl);
                                     new Extensions.OgcsWebClient().DownloadFile(nupkgUrl, localFile);
                                 } else {
-                                    String nupkgUrl = nonGitHubReleaseUri + "\\" + update.Filename;
+                                    String nupkgUrl = nonGitHubReleaseUri + "\\" + updateFilename;
                                     log.Debug("Downloading " + nupkgUrl);
                                     new System.Net.WebClient().DownloadFile(nupkgUrl, localFile);
                                 }
@@ -216,8 +240,8 @@ namespace OutlookGoogleCalendarSync {
                             } catch (System.Exception ex) {
                                 squirrelGaEv.AddParameter(GA4.Squirrel.result, "Failed");
                                 squirrelGaEv.AddParameter(GA4.Squirrel.error, ex.Message);
-                                ex.Analyse("Failed downloading release file " + update.Filename + " for " + update.Version);
-                                ex.Data.Add("analyticsLabel", "from=" + Application.ProductVersion + ";download_file=" + update.Filename + ";" + ex.Message);
+                                ex.Analyse("Failed downloading release file " + updateFilename + " for " + update.Version);
+                                ex.Data.Add("analyticsLabel", "from=" + Application.ProductVersion + ";download_file=" + updateFilename + ";" + ex.Message);
                                 throw new ApplicationException("Failed upgrading OGCS.", ex);
                             } finally {
                                 squirrelGaEv.Send();
@@ -226,7 +250,10 @@ namespace OutlookGoogleCalendarSync {
 
                         if (string.IsNullOrEmpty(releaseNotes)) {
                             log.Debug("Retrieving release notes.");
-                            releaseNotes = update.GetReleaseNotes(updates.PackageDirectory);
+                            if (nupkgOverridden)
+                                releaseNotes = extractReleaseNotes(localFile);
+                            else
+                                releaseNotes = update.GetReleaseNotes(updates.PackageDirectory);
                             releaseVersion = update.Version.Version.ToString();
                             releaseType = update.Version.SpecialVersion;
                             squirrelAnalyticsLabel = "from=" + Application.ProductVersion + ";to=" + releaseVersion;
@@ -272,7 +299,7 @@ namespace OutlookGoogleCalendarSync {
                                 try {
                                     await updateManager.ApplyReleases(updates, updateInfoFrm.ShowUpgradeProgress);
                                     break;
-                                
+
                                 } catch (System.ComponentModel.Win32Exception ex) {
                                     if (ex.GetErrorCode() == "0x80004005") { //"The system cannot find the file specified" in ApplyDelta()
                                         log.Warn("The base nupkg file CRC is not matching and cannot be used for delta update.");
@@ -312,7 +339,7 @@ namespace OutlookGoogleCalendarSync {
 
                             log.Info("The application has been successfully updated.");
                             squirrelGaEv.AddParameter(GA4.Squirrel.result, "Successful");
-                            
+
                             updateInfoFrm.UpgradeCompleted();
                             while (updateInfoFrm.AwaitingRestart) {
                                 Application.DoEvents();
@@ -374,6 +401,81 @@ namespace OutlookGoogleCalendarSync {
         }
 
         /// <summary>
+        /// Squirrel works with the most recent release, but this is not always the latest release for the OGCS version running
+        /// Eg: running v3.0.1:  v2.12.2-alpha is the most recent release, but latest for v3 is v3.0.2; or
+        ///     running v2.12.1: v3.0.2-alpha  is the most recent release, but latest for v2 is v2.12.2
+        /// </summary>
+        /// <returns>The proper latest release to target</returns>
+        private JObject parseGitHubRelease(Version currentVersion) {
+            JObject targetRelease = null;
+
+            if (Version.TryParse(Settings.Instance.SkipVersion, out Version skipVersion))
+                log.Info($"The user has previously requested to skip the v{skipVersion.Major} release {Settings.Instance.SkipVersion}");
+            if (Version.TryParse(Settings.Instance.SkipVersion2, out Version skipVersion2))
+                log.Info($"The user has previously requested to skip the v2 release {Settings.Instance.SkipVersion2}");
+
+            try {
+                String releaseJson = new Extensions.OgcsWebClient().DownloadString("https://api.github.com/repos/phw198/OutlookGoogleCalendarSync/releases");
+                JArray releases = JArray.Parse(releaseJson);
+
+                foreach (JObject release in releases.Where(r => r["draft"] != null && !(bool)r["draft"])) {
+                    if (!Settings.Instance.AlphaReleases && release["prerelease"] != null && (bool)release["prerelease"]) {
+                        log.Debug($"Alpha release {release["tag_name"]} ignored.");
+                        continue;
+                    }
+
+                    String version = release["tag_name"]?.ToString()?.TrimStart('v');
+                    version = version?.Split('-')[0]; //Ignore any prerelease suffix
+                    if (Version.TryParse(version + ".0", out Version releaseVersion)) {
+                        if (releaseVersion.Major == 2 && currentVersion.Major == 3) {
+                            log.Fine($"Only found a v2 release {releaseVersion}; continuing to scan...");
+                            continue;
+                        } else if (Program.VersionToInt(releaseVersion.ToString()) <= Program.VersionToInt(currentVersion.ToString())) {
+                            log.Fine($"Release v{releaseVersion} is the same or earlier than current version.");
+                            return null;
+                        }
+
+                        try {
+                            //Check for user requested skip of v3 releases
+                            if (releaseVersion.Major == 3 && skipVersion?.Major == 3) {
+                                if (Program.VersionToInt(releaseVersion.ToString()) > Program.VersionToInt(skipVersion?.ToString())) {
+                                    targetRelease = release;
+                                    break;
+                                } else {
+                                    log.Debug($"Skipping {releaseVersion}");
+                                    continue;
+                                }
+                            }
+                            //Check for user requested skip of v2 releases
+                            if (releaseVersion.Major == 2 && skipVersion2?.Major == 2) {
+                                if (Program.VersionToInt(releaseVersion.ToString()) > Program.VersionToInt(skipVersion2?.ToString())) {
+                                    targetRelease = release;
+                                    break;
+                                } else {
+                                    log.Debug($"Skipping {releaseVersion}");
+                                    continue;
+                                }
+                            }
+                            //No user requested skip, so a simple version comparison
+                            if (Program.VersionToInt(releaseVersion.ToString()) > Program.VersionToInt(currentVersion.ToString())) {
+                                targetRelease = release;
+                                break;
+                            }
+                        } finally {
+                            if (targetRelease != null)
+                                log.Info($"Found a newer v{releaseVersion.Major} release - targeting {releaseVersion}");
+                        }
+                    } else {
+                        log.Error($"Could not parse release verson {releaseVersion}");
+                    }
+                }
+            } catch (System.Exception ex) {
+                ex.Analyse("Failed to parse GitHub release information.");
+            }
+            return targetRelease;
+        }
+
+        /// <summary>
         /// If the RELEASES file is empty, false 'upgrades' to the same version as current occur
         /// </summary>
         /// <param name="updates">The updates available</param>
@@ -407,6 +509,41 @@ namespace OutlookGoogleCalendarSync {
                     ex.Analyse($"Could not delete {Program.MaskFilePath(file)}");
                 }
             }
+        }
+
+        private static String extractReleaseNotes(String nupkgFilename) {
+            String releaseNotes = "";
+            log.Debug("Extracting release notes directly out of nupkg file...");
+            try {
+                using (Stream nupkgStream = File.OpenRead(nupkgFilename))
+                using (SharpCompress.Archives.Zip.ZipArchive archive = SharpCompress.Archives.Zip.ZipArchive.Open(nupkgStream)) {
+                    SharpCompress.Archives.Zip.ZipArchiveEntry nuspecEntry = archive.Entries
+                        .Reverse().FirstOrDefault(e => e.Key != null && e.Key.EndsWith(".nuspec"));
+
+                    if (nuspecEntry != null) {
+                        using (Stream nuspecStream = nuspecEntry.OpenEntryStream())
+                        using (StreamReader reader = new StreamReader(nuspecStream)) {
+                            string nuspecXml = reader.ReadToEnd();
+                            if (!string.IsNullOrEmpty(nuspecXml)) {
+                                System.Xml.Linq.XDocument doc = System.Xml.Linq.XDocument.Parse(nuspecXml);
+
+                                // Get the XML namespace from the root element (crucial for NuGet specs)
+                                System.Xml.Linq.XNamespace ns = doc.Root?.GetDefaultNamespace() ?? System.Xml.Linq.XNamespace.None;
+
+                                System.Xml.Linq.XElement releaseNotesElement = doc.Root?
+                                    .Element(ns + "metadata")?
+                                    .Element(ns + "releaseNotes");
+
+                                if (releaseNotesElement != null)
+                                    releaseNotes = releaseNotesElement.Value;
+                            }
+                        }
+                    }
+                }
+            } catch (System.Exception ex) {
+                ex.Analyse("Unable to extra release notes from " + nupkgFilename);
+            }
+            return releaseNotes;
         }
 
         #region Squirrel Bits
@@ -496,7 +633,7 @@ namespace OutlookGoogleCalendarSync {
                 }).Start();
                 try {
                     Telemetry.GA4Event.Event squirrelGaEv = new(Telemetry.GA4Event.Event.Name.squirrel);
-                    squirrelGaEv.AddParameter(GA4.Squirrel.uninstall, version.ToString() +" " + DateTime.Now.ToString("g"));
+                    squirrelGaEv.AddParameter(GA4.Squirrel.uninstall, version.ToString() + " " + DateTime.Now.ToString("g"));
                     String completedSyncs = XMLManager.ImportElement("CompletedSyncs", Settings.ConfigFile) ?? "0";
                     squirrelGaEv.AddParameter(GA4.General.sync_count, completedSyncs);
                     squirrelGaEv.Send(withBlankEnvelope: true, async: false);
@@ -571,7 +708,7 @@ namespace OutlookGoogleCalendarSync {
             bwUpdater.RunWorkerCompleted += new RunWorkerCompletedEventHandler(checkForZip_completed);
             bwUpdater.RunWorkerAsync();
         }
-        
+
         private void checkForZip(object sender, DoWorkEventArgs e) {
             string releaseURL = null;
             string releaseVersion = null;
@@ -628,7 +765,7 @@ namespace OutlookGoogleCalendarSync {
                 Int32 releaseNum = Program.VersionToInt(releaseVersion);
                 if (releaseNum > myReleaseNum) {
                     log.Info("New " + releaseType + " ZIP release found: " + releaseVersion);
-                    
+
                     DialogResult dr = DialogResult.Cancel;
                     var t = new System.Threading.Thread(() => new Forms.UpdateInfo(releaseVersion, releaseType, null, out dr));
                     t.SetApartmentState(System.Threading.ApartmentState.STA);
@@ -667,7 +804,7 @@ namespace OutlookGoogleCalendarSync {
         private void checkForZip_completed(object sender, RunWorkerCompletedEventArgs e) {
             if (isManualCheck)
                 Forms.Main.Instance.btCheckForUpdate.Text = "Check For Update";
-        }        
+        }
 
         private static void parseRelease(string source, ref string releaseType, ref string releaseURL, ref string releaseVersion, string maxVersion = null) {
             log.Debug("Finding " + (maxVersion == null ? "" : $"v{maxVersion} ") + "Beta release...");
@@ -694,7 +831,7 @@ namespace OutlookGoogleCalendarSync {
                 }
             }
 
-            if (string.IsNullOrEmpty(releaseVersion)) 
+            if (string.IsNullOrEmpty(releaseVersion))
                 log.Error("Could you not identify any ZIP release details.");
         }
         #endregion

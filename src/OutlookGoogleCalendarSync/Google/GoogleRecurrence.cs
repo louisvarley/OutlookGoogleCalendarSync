@@ -250,7 +250,10 @@ namespace OutlookGoogleCalendarSync.Google {
                 return System.DateTime.ParseExact(rruleUntil, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture).Date;
             else {
                 System.DateTime endDate = System.DateTime.ParseExact(rruleUntil, "yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal);
-                return endDate.AddMinutes(TimezoneDB.GetUtcOffset(endTimeZone)).Date;
+                if (rruleUntil.EndsWith("T000000Z"))
+                    return endDate.Date;
+                else
+                    return endDate.AddMinutes(TimezoneDB.GetUtcOffset(endTimeZone)).Date;
             }
         }
 
@@ -296,7 +299,7 @@ namespace OutlookGoogleCalendarSync.Google {
             }
             log.Debug("Found " + googleExceptions.Count + " exceptions.");
             if (log.IsFineEnabled())
-                googleExceptions.ForEach(ge => log.Fine($"RecurringEventId:{ge.RecurringEventId}; Start:{ge.Start.SafeDateTime().ToString()};"));
+                googleExceptions.ForEach(ge => log.Fine($"RecurringEventId:{ge.RecurringEventId}; Start:{(ge.Start == null ? "null" : ge.Start.SafeDateTimeOffset().ToString())};"));
         }
 
         /// <summary>
@@ -306,7 +309,7 @@ namespace OutlookGoogleCalendarSync.Google {
         /// <param name="originalInstanceDate">The date to search for</param>
         /// <returns></returns>
         public static Event GetGoogleInstance(String recurringEventId, System.DateTime originalInstanceDate) {
-            return googleExceptions.FirstOrDefault(g => g.RecurringEventId == recurringEventId && g.OriginalStartTime.SafeDateTime().Date == originalInstanceDate);
+            return googleExceptions.FirstOrDefault(g => g.RecurringEventId == recurringEventId && g.OriginalStartTime.SafeDateTimeOffset().Date == originalInstanceDate);
         }
 
         /// <summary>
@@ -597,7 +600,7 @@ namespace OutlookGoogleCalendarSync.Google {
                                         }
                                         continue;
                                     } else if (oIsDeleted == Outlook.Recurrence.DeletionState.Deleted && gExcp.Status != "cancelled") {
-                                        System.DateTime movedToStartDate = gExcp.Start.SafeDateTime().Date;
+                                        System.DateTime movedToStartDate = gExcp.Start.SafeDateTimeOffset().Date;
                                         log.Fine("Checking if we have another Google instance that /is/ cancelled on " + movedToStartDate.ToString("dd-MMM-yyyy") + " that this one has been moved to.");
                                         Event duplicate = GetGoogleInstance(gExcp.RecurringEventId, movedToStartDate);
                                         DialogResult dr = DialogResult.Yes;
